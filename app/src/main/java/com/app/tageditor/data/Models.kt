@@ -43,7 +43,7 @@ data class TagData(
         TagKey.ENCODER -> encoder
         TagKey.LANGUAGE -> language
         TagKey.BPM -> bpm
-        TagKey.KEY -> key
+        TagKey.KEY -> this.key
     }
 
     fun withValue(key: TagKey, value: String): TagData = when (key) {
