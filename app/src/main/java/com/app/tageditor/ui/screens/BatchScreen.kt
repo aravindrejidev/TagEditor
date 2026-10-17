@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.app.tageditor.data.TagKey
 import com.app.tageditor.ui.components.NeuButton
@@ -28,6 +29,7 @@ import com.app.tageditor.ui.components.NeuTextField
 import com.app.tageditor.ui.components.NeuTopBar
 import com.app.tageditor.ui.components.SectionLabel
 import com.app.tageditor.ui.theme.NeuIcons
+import com.app.tageditor.ui.theme.NeuTextPrimary
 import com.app.tageditor.ui.theme.NeuTextSecondary
 import com.app.tageditor.viewmodel.BatchDraft
 import com.app.tageditor.viewmodel.CoverMode
@@ -39,6 +41,8 @@ private class BatchField(
     val keyboardType: KeyboardType = KeyboardType.Text,
     val capitalization: KeyboardCapitalization = KeyboardCapitalization.Words
 )
+
+private const val OVERVIEW_LIMIT = 6
 
 private val batchFields = listOf(
     BatchField(TagKey.ALBUM, "Album"),
@@ -85,11 +89,53 @@ fun BatchScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "Tick a field to write it to every selected file. Leave it unticked to keep each file's own value.",
+                text = if (draft.loading) {
+                    "Reading the current tags ..."
+                } else {
+                    "Values are shown when every selected file agrees, otherwise the field lists what differs. Edit a field or tick its box to write it to all files."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = NeuTextSecondary,
                 modifier = Modifier.padding(horizontal = 6.dp)
             )
+
+            if (draft.overview.isNotEmpty()) {
+                NeuCard(modifier = Modifier.fillMaxWidth()) {
+                    SectionLabel("Current data")
+                    Spacer(Modifier.height(8.dp))
+                    for ((item, tags) in draft.overview.take(OVERVIEW_LIMIT)) {
+                        Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                            Text(
+                                text = tags.title.ifBlank { item.baseName },
+                                style = MaterialTheme.typography.titleMedium,
+                                color = NeuTextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            val details = listOf(tags.artist, tags.album, tags.year)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" - ")
+                            if (details.isNotEmpty()) {
+                                Text(
+                                    text = details,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = NeuTextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                    if (draft.overview.size > OVERVIEW_LIMIT) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "and ${draft.overview.size - OVERVIEW_LIMIT} more",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NeuTextSecondary
+                        )
+                    }
+                }
+            }
 
             for (field in batchFields) {
                 val current = draft.field(field.key)
@@ -107,8 +153,11 @@ fun BatchScreen(
                         label = field.label,
                         modifier = Modifier.weight(1f),
                         hint = when {
-                            !current.enabled -> "Unchanged"
-                            current.value.isBlank() -> "Will be cleared on every file"
+                            current.enabled && current.value.isBlank() -> "Will be cleared on every file"
+                            !current.enabled && current.value.isBlank() -> {
+                                val different = draft.variants[field.key]
+                                if (different != null) "Different: " + different.joinToString(" / ") else "Unchanged"
+                            }
                             else -> null
                         },
                         keyboardType = field.keyboardType,

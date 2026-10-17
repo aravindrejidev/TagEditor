@@ -138,6 +138,13 @@ fun HomeScreen(
                 NeuChip(text = "None", onClick = onClearSelection, enabled = selected.isNotEmpty())
             }
 
+            Text(
+                text = "Tap a song to edit it. Tick several songs to edit them together.",
+                style = MaterialTheme.typography.labelMedium,
+                color = NeuTextHint,
+                modifier = Modifier.padding(horizontal = 26.dp)
+            )
+
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
@@ -188,7 +195,7 @@ private fun AudioRow(
     val artist = tags?.artist.orEmpty()
     val album = tags?.album.orEmpty()
     val subtitle = listOf(artist, album).filter { it.isNotBlank() }.joinToString(" - ")
-    val detail = listOf(item.extension.uppercase(), formatSize(item.sizeBytes), item.folder)
+    val detail = listOf(item.extension.uppercase(), formatSize(item.sizeBytes), tags?.year.orEmpty(), item.folder)
         .filter { it.isNotBlank() }
         .joinToString("   ")
 
@@ -248,7 +255,7 @@ private fun SelectionBar(count: Int, onBatch: () -> Unit, onRename: () -> Unit) 
         )
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             NeuButton(
-                text = "Batch edit",
+                text = if (count == 1) "Edit tags" else "Batch edit",
                 onClick = onBatch,
                 modifier = Modifier.weight(1f),
                 icon = NeuIcons.Tune,

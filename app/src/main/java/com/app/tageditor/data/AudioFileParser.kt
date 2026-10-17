@@ -113,9 +113,28 @@ object AudioFileParser {
             track = joinNumber(readField(tag, FieldKey.TRACK), readField(tag, FieldKey.TRACK_TOTAL)),
             disc = joinNumber(readField(tag, FieldKey.DISC_NO), readField(tag, FieldKey.DISC_TOTAL)),
             composer = readField(tag, FieldKey.COMPOSER),
+            lyricist = readNamed(tag, "LYRICIST"),
             comment = readField(tag, FieldKey.COMMENT),
-            lyrics = readField(tag, FieldKey.LYRICS)
+            lyrics = readField(tag, FieldKey.LYRICS),
+            encoder = readNamed(tag, "ENCODER"),
+            language = readNamed(tag, "LANGUAGE"),
+            bpm = readNamed(tag, "BPM"),
+            key = readNamed(tag, "KEY")
         )
+    }
+
+    /** Less common fields are looked up by name so a missing constant can never break the build. */
+    private fun keyByName(name: String): FieldKey? {
+        return try {
+            FieldKey.valueOf(name)
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+    }
+
+    private fun readNamed(tag: Tag, name: String): String {
+        val key = keyByName(name) ?: return ""
+        return readField(tag, key)
     }
 
     private fun joinNumber(number: String, total: String): String {
@@ -282,7 +301,13 @@ object AudioFileParser {
                 when (key) {
                     TagKey.TRACK -> applyNumber(tag, FieldKey.TRACK, FieldKey.TRACK_TOTAL, value)
                     TagKey.DISC -> applyNumber(tag, FieldKey.DISC_NO, FieldKey.DISC_TOTAL, value)
-                    else -> applyText(tag, fieldKeyOf(key), value)
+                    else -> {
+                        val fieldKey = fieldKeyOf(key)
+                            ?: throw UnsupportedOperationException(
+                                key.name.lowercase().replace('_', ' ') + " is not supported by this file type"
+                            )
+                        applyText(tag, fieldKey, value)
+                    }
                 }
             } catch (e: Exception) {
                 if (strict) throw e
@@ -290,7 +315,7 @@ object AudioFileParser {
         }
     }
 
-    private fun fieldKeyOf(key: TagKey): FieldKey = when (key) {
+    private fun fieldKeyOf(key: TagKey): FieldKey? = when (key) {
         TagKey.TITLE -> FieldKey.TITLE
         TagKey.ARTIST -> FieldKey.ARTIST
         TagKey.ALBUM -> FieldKey.ALBUM
@@ -302,6 +327,11 @@ object AudioFileParser {
         TagKey.COMPOSER -> FieldKey.COMPOSER
         TagKey.COMMENT -> FieldKey.COMMENT
         TagKey.LYRICS -> FieldKey.LYRICS
+        TagKey.LYRICIST -> keyByName("LYRICIST")
+        TagKey.ENCODER -> keyByName("ENCODER")
+        TagKey.LANGUAGE -> keyByName("LANGUAGE")
+        TagKey.BPM -> keyByName("BPM")
+        TagKey.KEY -> keyByName("KEY")
     }
 
     private fun applyText(tag: Tag, key: FieldKey, value: String) {

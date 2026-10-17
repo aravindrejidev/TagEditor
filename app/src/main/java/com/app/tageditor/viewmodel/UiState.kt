@@ -27,10 +27,17 @@ data class EditorState(
     val info: AudioInfo = AudioInfo(),
     val embeddedCover: CoverArt? = null,
     val coverChange: CoverChange = CoverChange.Keep,
-    val loadError: String? = null
+    val loadError: String? = null,
+    /** Where the file lives, shown at the top of the editor. */
+    val path: String = "",
+    /** After saving, also rename the file to the title tag. */
+    val renameAsTitle: Boolean = false
 ) {
     val coverChanged: Boolean
         get() = coverChange !is CoverChange.Keep
+
+    val canSave: Boolean
+        get() = !loading && loadError == null && (dirty || renameAsTitle)
 
     val dirty: Boolean
         get() = !loading && loadError == null && (diffTags(original, edited).isNotEmpty() || coverChanged)
@@ -50,10 +57,16 @@ data class FieldDraft(val enabled: Boolean = false, val value: String = "")
 enum class CoverMode { KEEP, REPLACE, REMOVE }
 
 data class BatchDraft(
+    /** Pre-filled with the value all selected files share; ticked/edited fields are written. */
     val fields: Map<TagKey, FieldDraft> = emptyMap(),
     val numberTracks: Boolean = false,
     val coverMode: CoverMode = CoverMode.KEEP,
-    val newCover: CoverArt? = null
+    val newCover: CoverArt? = null,
+    val loading: Boolean = false,
+    /** For fields where the files disagree: up to three of the values found. */
+    val variants: Map<TagKey, List<String>> = emptyMap(),
+    /** Current tags of the selected files, for the overview card. */
+    val overview: List<Pair<AudioItem, TagData>> = emptyList()
 ) {
     fun field(key: TagKey): FieldDraft = fields[key] ?: FieldDraft()
 

@@ -14,6 +14,7 @@ import com.app.tageditor.data.TagData
 import com.app.tageditor.data.TagEditorRepository
 import com.app.tageditor.data.TagKey
 import com.app.tageditor.data.diffTags
+import com.app.tageditor.data.friendlyPath
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -143,7 +144,12 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
     // ---------------------------------------------------------------------------------------
 
     fun openEditor(item: AudioItem) {
-        _state.update { it.copy(screen = Screen.EDITOR, editor = EditorState(item = item)) }
+        _state.update {
+            it.copy(
+                screen = Screen.EDITOR,
+                editor = EditorState(item = item, path = friendlyPath(item.uri, item.name))
+            )
+        }
         loadEditor(item)
     }
 
@@ -194,42 +200,90 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun setRenameAsTitle(enabled: Boolean) {
+        _state.update { s ->
+            val current = s.editor
+            if (current == null) s else s.copy(editor = current.copy(renameAsTitle = enabled))
+        }
+    }
+
+    private fun titleFileName(tags: TagData, item: AudioItem): String? {
+        val base = FileNameTemplate.render("%title%", tags, item.baseName)
+        if (base.isBlank()) return null
+        val suffix = if (item.extension.isEmpty()) "" else "." + item.extension
+        return base + suffix
+    }
+
     fun saveEditor() {
         val editor = _state.value.editor ?: return
-        if (!editor.dirty) return
+        if (!editor.canSave) return
         val patch = diffTags(editor.original, editor.edited)
+        val tagsChanged = patch.isNotEmpty() || editor.coverChanged
         viewModelScope.launch {
-            setBusy("Saving tags")
-            val saved = runCatching { repo.saveTags(editor.item, patch, editor.coverChange) }
-            if (saved.isSuccess) {
-                val reloaded = runCatching { repo.load(editor.item) }.getOrNull()
+            setBusy("Saving")
+            var item = editor.item
+            var saveError: Throwable? = null
+            var renameMessage: String? = null
+
+            if (tagsChanged) {
+                saveError = runCatching { repo.saveTags(item, patch, editor.coverChange) }.exceptionOrNull()
+            }
+            if (saveError == null && editor.renameAsTitle) {
+                val newName = titleFileName(editor.edited, item)
+                if (newName != null && newName != item.name) {
+                    val result = runCatching { repo.rename(item, newName) }
+                    val doc = result.getOrNull()
+                    if (doc != null) {
+                        item = item.copy(uri = doc.uri, name = doc.name)
+                    } else {
+                        val error = result.exceptionOrNull()
+                        renameMessage = if (error != null) friendly(error) else "unknown error"
+                    }
+                }
+            }
+
+            if (saveError == null) {
+                val reloaded = runCatching { repo.load(item) }.getOrNull()
+                val oldUri = editor.item.uri
+                val moved = item
                 _state.update { s ->
+                    val items = s.items.map { if (it.uri == oldUri) moved else it }
+                    val selected = s.selected.map { if (it == oldUri) moved.uri else it }.toSet()
                     val current = s.editor
-                    if (current == null || current.item.uri != editor.item.uri) {
-                        s
+                    if (current == null || current.item.uri != oldUri) {
+                        s.copy(items = items, selected = selected, revision = s.revision + 1)
                     } else {
                         val refreshed = if (reloaded != null) {
                             current.copy(
+                                item = moved,
+                                path = friendlyPath(moved.uri, moved.name),
                                 original = reloaded.tags,
                                 edited = reloaded.tags,
                                 info = reloaded.info,
                                 embeddedCover = reloaded.cover,
-                                coverChange = CoverChange.Keep
+                                coverChange = CoverChange.Keep,
+                                renameAsTitle = false
                             )
                         } else {
                             current.copy(
+                                item = moved,
+                                path = friendlyPath(moved.uri, moved.name),
                                 original = current.edited,
                                 embeddedCover = current.shownCover,
-                                coverChange = CoverChange.Keep
+                                coverChange = CoverChange.Keep,
+                                renameAsTitle = false
                             )
                         }
-                        s.copy(editor = refreshed, revision = s.revision + 1)
+                        s.copy(editor = refreshed, items = items, selected = selected, revision = s.revision + 1)
                     }
                 }
-                toast("Tags saved")
+                if (renameMessage != null) {
+                    toast("Tags saved, but the file could not be renamed: $renameMessage")
+                } else {
+                    toast("Saved")
+                }
             } else {
-                val error = saved.exceptionOrNull()
-                toast("Save failed: ${if (error != null) friendly(error) else "unknown error"}")
+                toast("Save failed: ${saveError?.let { friendly(it) } ?: "unknown error"}")
             }
             clearBusy()
         }
@@ -295,11 +349,53 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
     // ---------------------------------------------------------------------------------------
 
     fun openBatch() {
-        if (_state.value.selected.isEmpty()) {
+        val s = _state.value
+        val targets = s.items.filter { it.uri in s.selected }
+        if (targets.isEmpty()) {
             toast("Select one or more files first")
             return
         }
-        _state.update { it.copy(screen = Screen.BATCH, batch = BatchDraft()) }
+        if (targets.size == 1) {
+            // One song: the full editor is the better tool.
+            openEditor(targets.first())
+            return
+        }
+        _state.update { it.copy(screen = Screen.BATCH, batch = BatchDraft(loading = true)) }
+        viewModelScope.launch {
+            val rows = ArrayList<Pair<AudioItem, TagData>>()
+            targets.forEachIndexed { index, item ->
+                if (targets.size > 5) setBusy("Reading tags", index, targets.size)
+                val tags = runCatching { repo.quickTags(item) }.getOrNull()
+                if (tags != null) rows.add(Pair(item, tags))
+            }
+            clearBusy()
+
+            val prefilled = LinkedHashMap<TagKey, FieldDraft>()
+            val variants = LinkedHashMap<TagKey, List<String>>()
+            for (key in BATCH_KEYS) {
+                val values = rows.map { it.second[key].trim() }
+                val distinct = values.filter { it.isNotEmpty() }.distinct()
+                if (rows.isNotEmpty() && distinct.size == 1 && values.none { it.isEmpty() }) {
+                    prefilled[key] = FieldDraft(enabled = false, value = distinct[0])
+                } else if (distinct.isNotEmpty()) {
+                    variants[key] = distinct.take(3)
+                }
+            }
+            _state.update { st ->
+                if (st.screen != Screen.BATCH) {
+                    st
+                } else {
+                    st.copy(
+                        batch = st.batch.copy(
+                            loading = false,
+                            fields = prefilled + st.batch.fields,
+                            variants = variants,
+                            overview = rows
+                        )
+                    )
+                }
+            }
+        }
     }
 
     fun editBatchField(key: TagKey, draft: FieldDraft) {
@@ -562,6 +658,10 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private companion object {
+        val BATCH_KEYS = listOf(
+            TagKey.ALBUM, TagKey.ALBUM_ARTIST, TagKey.ARTIST, TagKey.YEAR,
+            TagKey.GENRE, TagKey.DISC, TagKey.COMPOSER, TagKey.COMMENT
+        )
         const val PREF_TEMPLATE = "rename_template"
         const val PREF_COVER_PX = "cover_max_px"
         const val PREF_KEEP_ORIGINAL = "cover_keep_original"

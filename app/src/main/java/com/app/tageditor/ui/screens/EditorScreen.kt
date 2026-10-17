@@ -10,11 +10,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
@@ -22,9 +26,12 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.app.tageditor.data.TagKey
+import com.app.tageditor.ui.components.GenrePickerDialog
 import com.app.tageditor.ui.components.NeuButton
 import com.app.tageditor.ui.components.NeuCard
+import com.app.tageditor.ui.components.NeuIconButton
 import com.app.tageditor.ui.components.NeuProgressBar
+import com.app.tageditor.ui.components.NeuSwitchRow
 import com.app.tageditor.ui.components.NeuTextField
 import com.app.tageditor.ui.components.NeuTopBar
 import com.app.tageditor.ui.components.NeuWell
@@ -37,7 +44,10 @@ import com.app.tageditor.ui.theme.NeuTextPrimary
 import com.app.tageditor.ui.theme.NeuTextSecondary
 import com.app.tageditor.viewmodel.EditorState
 
-/** Edit every tag of a single file, including its embedded cover art. */
+/**
+ * Shows every tag that is currently stored in the song, pre-filled, and lets the user change
+ * whatever is needed. Also manages the embedded cover art.
+ */
 @Composable
 fun EditorScreen(
     editor: EditorState,
@@ -47,6 +57,7 @@ fun EditorScreen(
     onEdit: (TagKey, String) -> Unit,
     onSave: () -> Unit,
     onRevert: () -> Unit,
+    onRenameAsTitle: (Boolean) -> Unit,
     onRenameFromTags: () -> Unit,
     onPickCover: (Uri) -> Unit,
     onRemoveCover: () -> Unit,
@@ -55,10 +66,12 @@ fun EditorScreen(
     onMaxPxChange: (Int) -> Unit,
     onKeepOriginalChange: (Boolean) -> Unit
 ) {
+    val showGenres = remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize()) {
         NeuTopBar(
             title = editor.item.name,
-            subtitle = if (editor.dirty) "Unsaved changes" else editor.item.folder.ifEmpty { "Tag editor" },
+            subtitle = if (editor.dirty) "Unsaved changes" else "Tag editor",
             onBack = onBack
         )
 
@@ -114,9 +127,19 @@ fun EditorScreen(
                         .padding(horizontal = 20.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
-                    val pills = infoPills(editor.info, editor.item.sizeBytes)
-                    if (pills.isNotEmpty()) {
-                        NeuCard(modifier = Modifier.fillMaxWidth()) {
+                    NeuCard(modifier = Modifier.fillMaxWidth()) {
+                        SectionLabel("Location")
+                        Spacer(Modifier.height(8.dp))
+                        SelectionContainer {
+                            Text(
+                                text = editor.path.ifEmpty { editor.item.name },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = NeuTextSecondary
+                            )
+                        }
+                        val pills = infoPills(editor.info, editor.item.sizeBytes)
+                        if (pills.isNotEmpty()) {
+                            Spacer(Modifier.height(16.dp))
                             SectionLabel("Audio stream (never re-encoded)")
                             Spacer(Modifier.height(10.dp))
                             PillRow(pills = pills)
@@ -143,6 +166,14 @@ fun EditorScreen(
                         label = "Title",
                         capitalization = KeyboardCapitalization.Words
                     )
+                    NeuCard(modifier = Modifier.fillMaxWidth()) {
+                        NeuSwitchRow(
+                            title = "Rename file as title",
+                            subtitle = "After saving, the file is named after the title",
+                            checked = editor.renameAsTitle,
+                            onCheckedChange = onRenameAsTitle
+                        )
+                    }
                     NeuTextField(
                         value = editor.edited.artist,
                         onValueChange = { onEdit(TagKey.ARTIST, it) },
@@ -170,15 +201,6 @@ fun EditorScreen(
                             keyboardType = KeyboardType.Number
                         )
                         NeuTextField(
-                            value = editor.edited.genre,
-                            onValueChange = { onEdit(TagKey.GENRE, it) },
-                            label = "Genre",
-                            modifier = Modifier.weight(1f),
-                            capitalization = KeyboardCapitalization.Words
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        NeuTextField(
                             value = editor.edited.track,
                             onValueChange = { onEdit(TagKey.TRACK, it) },
                             label = "Track number",
@@ -186,6 +208,8 @@ fun EditorScreen(
                             hint = "3 or 3/12",
                             capitalization = KeyboardCapitalization.None
                         )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         NeuTextField(
                             value = editor.edited.disc,
                             onValueChange = { onEdit(TagKey.DISC, it) },
@@ -194,12 +218,64 @@ fun EditorScreen(
                             hint = "1 or 1/2",
                             capitalization = KeyboardCapitalization.None
                         )
+                        NeuTextField(
+                            value = editor.edited.bpm,
+                            onValueChange = { onEdit(TagKey.BPM, it) },
+                            label = "BPM",
+                            modifier = Modifier.weight(1f),
+                            keyboardType = KeyboardType.Number
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        NeuTextField(
+                            value = editor.edited.genre,
+                            onValueChange = { onEdit(TagKey.GENRE, it) },
+                            label = "Genre",
+                            modifier = Modifier.weight(1f),
+                            capitalization = KeyboardCapitalization.Words
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        NeuIconButton(
+                            icon = NeuIcons.List,
+                            contentDescription = "Choose genre",
+                            onClick = { showGenres.value = true }
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        NeuTextField(
+                            value = editor.edited.key,
+                            onValueChange = { onEdit(TagKey.KEY, it) },
+                            label = "Key",
+                            modifier = Modifier.weight(1f),
+                            hint = "e.g. Am",
+                            capitalization = KeyboardCapitalization.None
+                        )
+                        NeuTextField(
+                            value = editor.edited.language,
+                            onValueChange = { onEdit(TagKey.LANGUAGE, it) },
+                            label = "Language",
+                            modifier = Modifier.weight(1f),
+                            hint = "e.g. mal",
+                            capitalization = KeyboardCapitalization.None
+                        )
                     }
                     NeuTextField(
                         value = editor.edited.composer,
                         onValueChange = { onEdit(TagKey.COMPOSER, it) },
                         label = "Composer",
                         capitalization = KeyboardCapitalization.Words
+                    )
+                    NeuTextField(
+                        value = editor.edited.lyricist,
+                        onValueChange = { onEdit(TagKey.LYRICIST, it) },
+                        label = "Lyricist",
+                        capitalization = KeyboardCapitalization.Words
+                    )
+                    NeuTextField(
+                        value = editor.edited.encoder,
+                        onValueChange = { onEdit(TagKey.ENCODER, it) },
+                        label = "Encoder",
+                        capitalization = KeyboardCapitalization.None
                     )
                     NeuTextField(
                         value = editor.edited.comment,
@@ -214,7 +290,7 @@ fun EditorScreen(
                         onValueChange = { onEdit(TagKey.LYRICS, it) },
                         label = "Lyrics",
                         singleLine = false,
-                        minLines = 5,
+                        minLines = 6,
                         imeAction = ImeAction.Default
                     )
 
@@ -242,15 +318,25 @@ fun EditorScreen(
                         enabled = editor.dirty
                     )
                     NeuButton(
-                        text = "Save tags",
+                        text = "Save",
                         onClick = onSave,
                         modifier = Modifier.weight(1.4f),
                         icon = NeuIcons.Save,
                         primary = true,
-                        enabled = editor.dirty
+                        enabled = editor.canSave
                     )
                 }
             }
         }
+    }
+
+    if (showGenres.value) {
+        GenrePickerDialog(
+            onPick = { genre ->
+                onEdit(TagKey.GENRE, genre)
+                showGenres.value = false
+            },
+            onDismiss = { showGenres.value = false }
+        )
     }
 }

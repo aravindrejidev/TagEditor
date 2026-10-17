@@ -65,6 +65,12 @@ object NeuIcons {
             "M3,17v2h6v-2H3zM3,5v2h10V5H3zM13,21v-2h8v-2h-8v-2h-2v6h2zM7,9v2H3v2h4v2h2V9H7zM21,13v-2H11v2h10zM15,9h2V7h4V5h-4V3h-2v6z"
         )
     }
+    val List: ImageVector by lazy {
+        icon(
+            "List",
+            "M3,13h2v-2L3,11v2zM3,17h2v-2L3,15v2zM3,9h2L5,7L3,7v2zM7,13h14v-2L7,11v2zM7,17h14v-2L7,15v2zM7,7v2h14L21,7L7,7z"
+        )
+    }
     val Undo: ImageVector by lazy {
         icon(
             "Undo",

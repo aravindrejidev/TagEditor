@@ -4,7 +4,8 @@ import android.net.Uri
 
 /** Every tag field the app can edit. */
 enum class TagKey {
-    TITLE, ARTIST, ALBUM, ALBUM_ARTIST, YEAR, GENRE, TRACK, DISC, COMPOSER, COMMENT, LYRICS
+    TITLE, ARTIST, ALBUM, ALBUM_ARTIST, YEAR, GENRE, TRACK, DISC, COMPOSER, LYRICIST,
+    COMMENT, LYRICS, ENCODER, LANGUAGE, BPM, KEY
 }
 
 /** Editable tag values of one audio file. Track/disc use "3" or "3/12" notation. */
@@ -18,8 +19,13 @@ data class TagData(
     val track: String = "",
     val disc: String = "",
     val composer: String = "",
+    val lyricist: String = "",
     val comment: String = "",
-    val lyrics: String = ""
+    val lyrics: String = "",
+    val encoder: String = "",
+    val language: String = "",
+    val bpm: String = "",
+    val key: String = ""
 ) {
     operator fun get(key: TagKey): String = when (key) {
         TagKey.TITLE -> title
@@ -31,8 +37,13 @@ data class TagData(
         TagKey.TRACK -> track
         TagKey.DISC -> disc
         TagKey.COMPOSER -> composer
+        TagKey.LYRICIST -> lyricist
         TagKey.COMMENT -> comment
         TagKey.LYRICS -> lyrics
+        TagKey.ENCODER -> encoder
+        TagKey.LANGUAGE -> language
+        TagKey.BPM -> bpm
+        TagKey.KEY -> key
     }
 
     fun withValue(key: TagKey, value: String): TagData = when (key) {
@@ -45,8 +56,13 @@ data class TagData(
         TagKey.TRACK -> copy(track = value)
         TagKey.DISC -> copy(disc = value)
         TagKey.COMPOSER -> copy(composer = value)
+        TagKey.LYRICIST -> copy(lyricist = value)
         TagKey.COMMENT -> copy(comment = value)
         TagKey.LYRICS -> copy(lyrics = value)
+        TagKey.ENCODER -> copy(encoder = value)
+        TagKey.LANGUAGE -> copy(language = value)
+        TagKey.BPM -> copy(bpm = value)
+        TagKey.KEY -> copy(key = value)
     }
 
     fun isEmpty(): Boolean = TagKey.values().all { this[it].isBlank() }
@@ -115,6 +131,25 @@ data class AudioItem(
 }
 
 data class RenamedDoc(val uri: Uri, val name: String)
+
+/**
+ * Human readable location of a SAF document, for example
+ * `/storage/emulated/0/Music/Album/song.flac`. Providers that use opaque ids only get the name.
+ */
+fun friendlyPath(uri: Uri, fallbackName: String): String {
+    val documentId = uri.lastPathSegment ?: return fallbackName
+    val colon = documentId.indexOf(':')
+    if (colon <= 0) return fallbackName
+    val volume = documentId.substring(0, colon)
+    val rest = documentId.substring(colon + 1)
+    return when {
+        rest.isEmpty() -> fallbackName
+        volume.equals("primary", ignoreCase = true) -> "/storage/emulated/0/$rest"
+        volume.equals("raw", ignoreCase = true) && rest.startsWith("/") -> rest
+        Regex("[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}").matches(volume) -> "/storage/$volume/$rest"
+        else -> fallbackName
+    }
+}
 
 /** Compares strings so that "Track 2" sorts before "Track 10". */
 object NaturalOrder : Comparator<String> {

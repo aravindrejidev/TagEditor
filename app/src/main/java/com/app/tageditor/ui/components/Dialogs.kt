@@ -6,6 +6,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -21,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.app.tageditor.data.Genres
 import com.app.tageditor.ui.theme.NeuAccent
 import com.app.tageditor.ui.theme.NeuShapes
 import com.app.tageditor.ui.theme.NeuSurface
@@ -103,4 +107,29 @@ fun NeuDialog(
             }
         }
     )
+}
+
+/** List of common genres; tapping one fills the genre field. */
+@Composable
+fun GenrePickerDialog(onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    NeuDialog(
+        title = "Choose genre",
+        confirmLabel = "Close",
+        onConfirm = onDismiss,
+        onDismiss = onDismiss
+    ) {
+        LazyColumn(modifier = Modifier.heightIn(max = 380.dp)) {
+            items(Genres.all) { genre ->
+                Text(
+                    text = genre,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = NeuTextPrimary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onPick(genre) }
+                        .padding(horizontal = 6.dp, vertical = 14.dp)
+                )
+            }
+        }
+    }
 }

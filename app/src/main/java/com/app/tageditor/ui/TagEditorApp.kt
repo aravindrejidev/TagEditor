@@ -117,6 +117,7 @@ fun TagEditorApp(vm: TagEditorViewModel = viewModel()) {
                                     onEdit = vm::editField,
                                     onSave = vm::saveEditor,
                                     onRevert = vm::revertEditor,
+                                    onRenameAsTitle = vm::setRenameAsTitle,
                                     onRenameFromTags = vm::openRenameForEditor,
                                     onPickCover = vm::pickEditorCover,
                                     onRemoveCover = vm::removeEditorCover,
