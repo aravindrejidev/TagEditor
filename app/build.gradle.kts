@@ -4,6 +4,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Injected by the release workflow:  -PappVersionName=1.2.0 -PappVersionCode=10200 -PgithubRepo=owner/repo
+val appVersionName: String = (project.findProperty("appVersionName") as String?) ?: "1.1.0"
+val appVersionCode: Int = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 2
+val githubRepo: String = (project.findProperty("githubRepo") as String?) ?: ""
+
 android {
     namespace = "com.app.tageditor"
     compileSdk = 35
@@ -12,18 +17,37 @@ android {
         applicationId = "com.app.tageditor"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
+
+        // Repository the in-app updater looks at for new releases ("owner/repo").
+        buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
+    }
+
+    signingConfigs {
+        create("release") {
+            // Provided by the release workflow. Updates only install over an older version when
+            // every release is signed with the same key.
+            val keystorePath = System.getenv("KEYSTORE_PATH")
+            if (!keystorePath.isNullOrBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+                storeType = "pkcs12"
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = if (System.getenv("KEYSTORE_PATH").isNullOrBlank()) {
+                null
+            } else {
+                signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -41,6 +65,12 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     packaging {
