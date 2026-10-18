@@ -35,6 +35,8 @@ import com.app.tageditor.ui.components.BusyOverlay
 import com.app.tageditor.ui.components.NeuDialog
 import com.app.tageditor.ui.components.OpenAudioDocuments
 import com.app.tageditor.ui.components.OpenFolder
+import com.app.tageditor.ui.components.UpdateDialog
+import com.app.tageditor.ui.components.VersionChip
 import com.app.tageditor.ui.screens.BatchScreen
 import com.app.tageditor.ui.screens.EditorScreen
 import com.app.tageditor.ui.screens.HomeScreen
@@ -45,13 +47,19 @@ import com.app.tageditor.ui.theme.NeuShapes
 import com.app.tageditor.ui.theme.NeuSurface
 import com.app.tageditor.ui.theme.NeuTextPrimary
 import com.app.tageditor.ui.theme.NeuTextSecondary
+import com.app.tageditor.update.UpdateViewModel
 import com.app.tageditor.viewmodel.Screen
 import com.app.tageditor.viewmodel.TagEditorViewModel
 
 /** Root composable: owns the file pickers, routes between screens and shows global overlays. */
 @Composable
-fun TagEditorApp(vm: TagEditorViewModel = viewModel()) {
+fun TagEditorApp(
+    vm: TagEditorViewModel = viewModel(),
+    updateVm: UpdateViewModel = viewModel()
+) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val updateState by updateVm.state.collectAsStateWithLifecycle()
+    val checking by updateVm.checking.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
 
@@ -64,6 +72,9 @@ fun TagEditorApp(vm: TagEditorViewModel = viewModel()) {
 
     LaunchedEffect(vm) {
         vm.messages.collect { message -> snackbarHost.showSnackbar(message) }
+    }
+    LaunchedEffect(updateVm) {
+        updateVm.messages.collect { message -> snackbarHost.showSnackbar(message) }
     }
 
     BackHandler(enabled = state.screen != Screen.HOME && state.busy == null) {
@@ -90,21 +101,35 @@ fun TagEditorApp(vm: TagEditorViewModel = viewModel()) {
                     .fillMaxSize()
                 ) {
                     when (screen) {
-                        Screen.HOME -> HomeScreen(
-                            items = state.items,
-                            selected = state.selected,
-                            revision = state.revision,
-                            onOpenFiles = { openFiles.launch(Unit) },
-                            onOpenFolder = { openFolder.launch(Unit) },
-                            onItemClick = vm::openEditor,
-                            onToggle = vm::toggleSelected,
-                            onSelectAll = vm::selectAll,
-                            onClearSelection = vm::clearSelection,
-                            onClearList = vm::clearList,
-                            onBatch = vm::openBatch,
-                            onRename = vm::openRename,
-                            loadTags = { item -> vm.tagsFor(item) }
-                        )
+                        Screen.HOME -> {
+                            HomeScreen(
+                                items = state.items,
+                                selected = state.selected,
+                                revision = state.revision,
+                                onOpenFiles = { openFiles.launch(Unit) },
+                                onOpenFolder = { openFolder.launch(Unit) },
+                                onItemClick = vm::openEditor,
+                                onToggle = vm::toggleSelected,
+                                onSelectAll = vm::selectAll,
+                                onClearSelection = vm::clearSelection,
+                                onClearList = vm::clearList,
+                                onBatch = vm::openBatch,
+                                onRename = vm::openRename,
+                                loadTags = { item -> vm.tagsFor(item) }
+                            )
+                            // Installed version; tap to look for updates right now.
+                            VersionChip(
+                                version = updateVm.currentVersion,
+                                checking = checking,
+                                onClick = { updateVm.checkForUpdate(manual = true) },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(
+                                        top = 14.dp,
+                                        end = if (state.items.isEmpty()) 20.dp else 84.dp
+                                    )
+                            )
+                        }
 
                         Screen.EDITOR -> {
                             val editor = state.editor
@@ -159,6 +184,15 @@ fun TagEditorApp(vm: TagEditorViewModel = viewModel()) {
         if (busy != null) {
             BusyOverlay(busy = busy)
         }
+
+        UpdateDialog(
+            state = updateState,
+            currentVersion = updateVm.currentVersion,
+            onPrimary = updateVm::onPrimaryAction,
+            onLater = updateVm::later,
+            onSkip = updateVm::skipVersion,
+            onOpenPage = updateVm::openReleasePage
+        )
 
         SnackbarHost(
             hostState = snackbarHost,
