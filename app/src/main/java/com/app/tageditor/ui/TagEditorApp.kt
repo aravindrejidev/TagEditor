@@ -2,8 +2,14 @@ package com.app.tageditor.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -42,14 +49,25 @@ import com.app.tageditor.ui.screens.EditorScreen
 import com.app.tageditor.ui.screens.HomeScreen
 import com.app.tageditor.ui.screens.RenameScreen
 import com.app.tageditor.ui.theme.NeuBackground
+import com.app.tageditor.ui.theme.Motion
 import com.app.tageditor.ui.theme.NeuAccent
 import com.app.tageditor.ui.theme.NeuShapes
 import com.app.tageditor.ui.theme.NeuSurface
 import com.app.tageditor.ui.theme.NeuTextPrimary
 import com.app.tageditor.ui.theme.NeuTextSecondary
 import com.app.tageditor.update.UpdateViewModel
+import com.app.tageditor.viewmodel.BusyState
+import com.app.tageditor.viewmodel.EditorState
 import com.app.tageditor.viewmodel.Screen
 import com.app.tageditor.viewmodel.TagEditorViewModel
+
+/** How deep a screen sits in the navigation: used to choose the slide direction. */
+private fun depthOf(screen: Screen, returnTo: Screen): Int = when (screen) {
+    Screen.HOME -> 0
+    Screen.EDITOR -> 1
+    Screen.BATCH -> 1
+    Screen.RENAME -> if (returnTo == Screen.EDITOR) 2 else 1
+}
 
 /** Root composable: owns the file pickers, routes between screens and shows global overlays. */
 @Composable
@@ -62,6 +80,18 @@ fun TagEditorApp(
     val checking by updateVm.checking.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
+
+    // Kept at the root so the list keeps its scroll position and rows animate in only once.
+    val listState = rememberLazyListState()
+    val seenRows = remember { HashSet<String>() }
+    // Remember the last editor / busy state so screens can still be drawn while they animate out.
+    val editorHolder = remember { arrayOfNulls<EditorState>(1) }
+    val busyHolder = remember { arrayOfNulls<BusyState>(1) }
+    val currentEditor = state.editor
+    if (currentEditor != null) editorHolder[0] = currentEditor
+    val currentBusy = state.busy
+    if (currentBusy != null) busyHolder[0] = currentBusy
+    val returnTo = state.rename.returnTo
 
     val openFiles = rememberLauncherForActivityResult(remember { OpenAudioDocuments() }) { uris ->
         vm.onFilesPicked(uris)
@@ -87,12 +117,23 @@ fun TagEditorApp(
             .fillMaxSize()
             .background(NeuBackground)
     ) {
-        Crossfade(
+        AnimatedContent(
             targetState = state.screen,
             modifier = Modifier
                 .fillMaxSize()
                 .safeDrawingPadding(),
-            animationSpec = tween(durationMillis = 180),
+            transitionSpec = {
+                val forward = depthOf(targetState, returnTo) > depthOf(initialState, returnTo)
+                val enter = slideInHorizontally(
+                    animationSpec = tween(Motion.Medium + 80, easing = Motion.EmphasizedDecelerate),
+                    initialOffsetX = { if (forward) it / 4 else -it / 6 }
+                ) + fadeIn(tween(Motion.Medium, delayMillis = 40))
+                val exit = slideOutHorizontally(
+                    animationSpec = tween(Motion.Medium + 80, easing = Motion.Emphasized),
+                    targetOffsetX = { if (forward) -it / 6 else it / 4 }
+                ) + fadeOut(tween(Motion.Quick + 40))
+                (enter togetherWith exit).apply { targetContentZIndex = if (forward) 1f else -1f }
+            },
             label = "screen"
         ) { screen ->
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -106,6 +147,8 @@ fun TagEditorApp(
                                 items = state.items,
                                 selected = state.selected,
                                 revision = state.revision,
+                                listState = listState,
+                                seenRows = seenRows,
                                 onOpenFiles = { openFiles.launch(Unit) },
                                 onOpenFolder = { openFolder.launch(Unit) },
                                 onItemClick = vm::openEditor,
@@ -132,7 +175,7 @@ fun TagEditorApp(
                         }
 
                         Screen.EDITOR -> {
-                            val editor = state.editor
+                            val editor = state.editor ?: editorHolder[0]
                             if (editor != null) {
                                 EditorScreen(
                                     editor = editor,
@@ -180,9 +223,13 @@ fun TagEditorApp(
             }
         }
 
-        val busy = state.busy
-        if (busy != null) {
-            BusyOverlay(busy = busy)
+        val shownBusy = state.busy ?: busyHolder[0]
+        AnimatedVisibility(
+            visible = state.busy != null,
+            enter = fadeIn(tween(Motion.Quick)),
+            exit = fadeOut(tween(Motion.Medium))
+        ) {
+            if (shownBusy != null) BusyOverlay(busy = shownBusy)
         }
 
         UpdateDialog(
