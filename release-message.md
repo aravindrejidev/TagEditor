@@ -1,2 +1,2 @@
 ## What's new
-- Test app updater 
+- Upgraded animations and transitions 
