@@ -2,10 +2,22 @@ package com.app.tageditor.ui.screens
 
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,19 +28,24 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,20 +57,30 @@ import com.app.tageditor.ui.components.NeuCheckbox
 import com.app.tageditor.ui.components.NeuChip
 import com.app.tageditor.ui.components.NeuIconButton
 import com.app.tageditor.ui.formatSize
+import com.app.tageditor.ui.theme.Motion
+import com.app.tageditor.ui.theme.NeuAccent
 import com.app.tageditor.ui.theme.NeuIcons
 import com.app.tageditor.ui.theme.NeuTextHint
 import com.app.tageditor.ui.theme.NeuTextPrimary
 import com.app.tageditor.ui.theme.NeuTextSecondary
 import com.app.tageditor.ui.theme.neuInset
 import com.app.tageditor.ui.theme.neuRaised
+import com.app.tageditor.ui.theme.staggeredEntrance
 import kotlinx.coroutines.CancellationException
 
-/** File list: pick files or a folder, tap a file to edit it, tick files for batch actions. */
+/**
+ * File list: pick files or a folder, tap a song to edit it, tick songs for batch actions.
+ * [listState] and [seenRows] live in the root so the scroll position survives opening an editor
+ * and rows only play their entrance animation the first time they appear.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     items: List<AudioItem>,
     selected: Set<Uri>,
     revision: Int,
+    listState: LazyListState,
+    seenRows: MutableSet<String>,
     onOpenFiles: () -> Unit,
     onOpenFolder: () -> Unit,
     onItemClick: (AudioItem) -> Unit,
@@ -84,7 +111,11 @@ fun HomeScreen(
                     color = NeuTextSecondary
                 )
             }
-            if (items.isNotEmpty()) {
+            AnimatedVisibility(
+                visible = items.isNotEmpty(),
+                enter = fadeIn(tween(Motion.Medium)),
+                exit = fadeOut(tween(Motion.Quick))
+            ) {
                 NeuIconButton(
                     icon = NeuIcons.Close,
                     contentDescription = "Clear file list",
@@ -130,7 +161,7 @@ fun HomeScreen(
                         "${selected.size} of ${items.size} selected"
                     },
                     style = MaterialTheme.typography.labelLarge,
-                    color = NeuTextSecondary,
+                    color = if (selected.isEmpty()) NeuTextSecondary else NeuAccent,
                     modifier = Modifier.weight(1f)
                 )
                 NeuChip(text = "Select all", onClick = onSelectAll)
@@ -147,17 +178,21 @@ fun HomeScreen(
 
             LazyColumn(
                 modifier = Modifier.weight(1f),
+                state = listState,
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(items = items, key = { it.uri.toString() }) { item ->
+                itemsIndexed(items = items, key = { _, item -> item.uri.toString() }) { index, item ->
                     AudioRow(
                         item = item,
+                        index = index,
+                        animateIn = remember(item.uri) { seenRows.add(item.uri.toString()) && index < 12 },
                         checked = item.uri in selected,
                         revision = revision,
                         onClick = { onItemClick(item) },
                         onToggle = { onToggle(item.uri) },
-                        loadTags = loadTags
+                        loadTags = loadTags,
+                        modifier = Modifier.animateItem()
                     )
                 }
             }
@@ -165,8 +200,14 @@ fun HomeScreen(
 
         AnimatedVisibility(
             visible = selected.isNotEmpty(),
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut()
+            enter = slideInVertically(
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f),
+                initialOffsetY = { it }
+            ) + fadeIn(tween(Motion.Medium)),
+            exit = slideOutVertically(
+                animationSpec = tween(Motion.Medium, easing = Motion.Emphasized),
+                targetOffsetY = { it }
+            ) + fadeOut(tween(Motion.Quick))
         ) {
             SelectionBar(count = selected.size, onBatch = onBatch, onRename = onRename)
         }
@@ -176,11 +217,14 @@ fun HomeScreen(
 @Composable
 private fun AudioRow(
     item: AudioItem,
+    index: Int,
+    animateIn: Boolean,
     checked: Boolean,
     revision: Int,
     onClick: () -> Unit,
     onToggle: () -> Unit,
-    loadTags: suspend (AudioItem) -> TagData
+    loadTags: suspend (AudioItem) -> TagData,
+    modifier: Modifier = Modifier
 ) {
     val tags by produceState<TagData?>(null, item.uri, revision) {
         value = try {
@@ -191,6 +235,11 @@ private fun AudioRow(
             null
         }
     }
+    val selectGlow by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = tween(Motion.Medium),
+        label = "rowSelect"
+    )
     val title = tags?.title?.takeIf { it.isNotBlank() } ?: item.baseName
     val artist = tags?.artist.orEmpty()
     val album = tags?.album.orEmpty()
@@ -200,9 +249,11 @@ private fun AudioRow(
         .joinToString("   ")
 
     Row(
-        modifier = Modifier
+        modifier = modifier
+            .then(if (animateIn) Modifier.staggeredEntrance(index) else Modifier)
             .fillMaxWidth()
             .neuRaised(corner = 20.dp, elevation = 5.dp)
+            .border(1.5.dp, NeuAccent.copy(alpha = selectGlow * 0.75f), RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
             .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -271,29 +322,61 @@ private fun SelectionBar(count: Int, onBatch: () -> Unit, onRename: () -> Unit) 
     }
 }
 
+/** Friendly empty state: a floating note with a soft ring that keeps radiating. */
 @Composable
 private fun EmptyState(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "empty")
+    val bob by transition.animateFloat(
+        initialValue = -6f,
+        targetValue = 6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "emptyBob"
+    )
+    val ring by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "emptyRing"
+    )
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(32.dp),
+            .padding(32.dp)
+            .staggeredEntrance(1),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(96.dp)
-                    .neuInset(corner = 48.dp, depth = 5.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = NeuIcons.MusicNote,
-                    contentDescription = null,
-                    tint = NeuTextHint,
-                    modifier = Modifier.size(40.dp)
-                )
+            Box(modifier = Modifier.size(140.dp), contentAlignment = Alignment.Center) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val outer = size.minDimension / 2f
+                    drawCircle(
+                        color = NeuAccent.copy(alpha = (1f - ring) * 0.3f),
+                        radius = outer * (0.55f + 0.45f * ring),
+                        style = Stroke(width = 2.dp.toPx())
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .offset(y = bob.dp)
+                        .neuInset(corner = 48.dp, depth = 5.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = NeuIcons.MusicNote,
+                        contentDescription = null,
+                        tint = NeuAccent,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
             }
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(18.dp))
             Text(
                 text = "No files yet",
                 style = MaterialTheme.typography.titleMedium,
