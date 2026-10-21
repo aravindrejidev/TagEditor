@@ -1,14 +1,22 @@
 package com.app.tageditor.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,16 +53,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.app.tageditor.ui.theme.Motion
 import com.app.tageditor.ui.theme.NeuAccent
-import com.app.tageditor.ui.theme.NeuAccentSoft
 import com.app.tageditor.ui.theme.NeuError
 import com.app.tageditor.ui.theme.NeuIcons
 import com.app.tageditor.ui.theme.NeuLight
@@ -64,13 +76,18 @@ import com.app.tageditor.ui.theme.NeuTextHint
 import com.app.tageditor.ui.theme.NeuTextPrimary
 import com.app.tageditor.ui.theme.NeuTextSecondary
 import com.app.tageditor.ui.theme.neuInset
+import com.app.tageditor.ui.theme.neuPressable
 import com.app.tageditor.ui.theme.neuRaised
+import com.app.tageditor.ui.theme.shimmer
+import kotlin.math.roundToInt
+
+private val PressSpring = spring<Float>(dampingRatio = 0.55f, stiffness = 650f)
+private val ToggleSpring = spring<Float>(dampingRatio = 0.6f, stiffness = 520f)
 
 // ---------------------------------------------------------------------------------------------
 // Surfaces
 // ---------------------------------------------------------------------------------------------
 
-/** A soft card that rises out of the background. */
 @Composable
 fun NeuCard(
     modifier: Modifier = Modifier,
@@ -87,7 +104,6 @@ fun NeuCard(
     )
 }
 
-/** A panel that is pressed into the background. */
 @Composable
 fun NeuWell(
     modifier: Modifier = Modifier,
@@ -103,11 +119,23 @@ fun NeuWell(
     )
 }
 
+/** Grey placeholder with a light sweep, shown while content loads. */
+@Composable
+fun SkeletonBlock(height: Dp, modifier: Modifier = Modifier, corner: Dp = 20.dp) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .neuInset(corner = corner, depth = 3.dp)
+            .shimmer()
+    )
+}
+
 // ---------------------------------------------------------------------------------------------
 // Buttons
 // ---------------------------------------------------------------------------------------------
 
-/** Tactile button: raised when idle, pushed in while pressed. */
+/** Tactile button: springs down when pressed, its shadow collapses and a soft tick is felt. */
 @Composable
 fun NeuButton(
     text: String,
@@ -120,30 +148,44 @@ fun NeuButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val down = pressed && enabled
-    val contentColor = when {
-        !enabled -> NeuTextHint
-        primary -> NeuOnAccent
-        danger -> NeuError
-        else -> NeuTextPrimary
-    }
-    val base = modifier.defaultMinSize(minHeight = 54.dp)
-    val styled = when {
-        primary && !enabled -> base.neuRaised(corner = 18.dp, elevation = 3.dp, body = NeuLight)
-        primary && down -> base.neuRaised(corner = 18.dp, elevation = 2.dp, body = NeuAccentSoft)
-        primary -> base.neuRaised(corner = 18.dp, elevation = 7.dp, body = NeuAccent)
-        down -> base.neuInset(corner = 18.dp, depth = 4.dp)
-        else -> base.neuRaised(corner = 18.dp, elevation = 7.dp)
-    }
+    val press by animateFloatAsState(
+        targetValue = if (pressed && enabled) 1f else 0f,
+        animationSpec = PressSpring,
+        label = "press"
+    )
+    val haptics = LocalHapticFeedback.current
+    val contentColor by animateColorAsState(
+        targetValue = when {
+            !enabled -> NeuTextHint
+            primary -> NeuOnAccent
+            danger -> NeuError
+            else -> NeuTextPrimary
+        },
+        animationSpec = tween(Motion.Quick),
+        label = "buttonContent"
+    )
+    val bodyColor by animateColorAsState(
+        targetValue = when {
+            primary && enabled -> NeuAccent
+            primary -> NeuLight
+            else -> NeuSurface
+        },
+        animationSpec = tween(Motion.Medium),
+        label = "buttonBody"
+    )
     Row(
-        modifier = styled
+        modifier = modifier
+            .defaultMinSize(minHeight = 54.dp)
+            .neuPressable(pressProgress = { press }, corner = 18.dp, elevation = 7.dp, body = bodyColor)
             .clickable(
                 interactionSource = interaction,
                 indication = null,
                 enabled = enabled,
-                role = Role.Button,
-                onClick = onClick
-            )
+                role = Role.Button
+            ) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
             .padding(horizontal = 18.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
@@ -179,21 +221,25 @@ fun NeuIconButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val down = pressed && enabled
-    val sized = modifier.size(buttonSize)
-    val styled = if (down) {
-        sized.neuInset(corner = buttonSize / 2, depth = 3.dp)
-    } else {
-        sized.neuRaised(corner = buttonSize / 2, elevation = 5.dp)
-    }
+    val press by animateFloatAsState(
+        targetValue = if (pressed && enabled) 1f else 0f,
+        animationSpec = PressSpring,
+        label = "iconPress"
+    )
+    val haptics = LocalHapticFeedback.current
     Box(
-        modifier = styled.clickable(
-            interactionSource = interaction,
-            indication = null,
-            enabled = enabled,
-            role = Role.Button,
-            onClick = onClick
-        ),
+        modifier = modifier
+            .size(buttonSize)
+            .neuPressable(pressProgress = { press }, corner = buttonSize / 2, elevation = 5.dp)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button
+            ) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            },
         contentAlignment = Alignment.Center
     ) {
         Icon(
@@ -205,7 +251,6 @@ fun NeuIconButton(
     }
 }
 
-/** Small raised pill, used for template placeholders and quick actions. */
 @Composable
 fun NeuChip(
     text: String,
@@ -215,28 +260,37 @@ fun NeuChip(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val base = modifier.defaultMinSize(minHeight = 40.dp)
-    val styled = if (pressed && enabled) {
-        base.neuInset(corner = 14.dp, depth = 2.dp)
-    } else {
-        base.neuRaised(corner = 14.dp, elevation = 4.dp)
-    }
+    val press by animateFloatAsState(
+        targetValue = if (pressed && enabled) 1f else 0f,
+        animationSpec = PressSpring,
+        label = "chipPress"
+    )
+    val haptics = LocalHapticFeedback.current
+    val color by animateColorAsState(
+        targetValue = if (enabled) NeuAccent else NeuTextHint,
+        animationSpec = tween(Motion.Quick),
+        label = "chipColor"
+    )
     Box(
-        modifier = styled
+        modifier = modifier
+            .defaultMinSize(minHeight = 40.dp)
+            .neuPressable(pressProgress = { press }, corner = 14.dp, elevation = 4.dp)
             .clickable(
                 interactionSource = interaction,
                 indication = null,
                 enabled = enabled,
-                role = Role.Button,
-                onClick = onClick
-            )
+                role = Role.Button
+            ) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
             .padding(horizontal = 14.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelLarge,
-            color = if (enabled) NeuAccent else NeuTextHint,
+            color = color,
             maxLines = 1
         )
     }
@@ -246,7 +300,7 @@ fun NeuChip(
 // Inputs
 // ---------------------------------------------------------------------------------------------
 
-/** Sunken text field with its label above. */
+/** Sunken text field. An amber glow fades in around it while it has focus. */
 @Composable
 fun NeuTextField(
     value: String,
@@ -261,11 +315,23 @@ fun NeuTextField(
     imeAction: ImeAction = ImeAction.Next,
     capitalization: KeyboardCapitalization = KeyboardCapitalization.Sentences
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val glow by animateFloatAsState(
+        targetValue = if (focused) 1f else 0f,
+        animationSpec = tween(Motion.Medium),
+        label = "focusGlow"
+    )
+    val labelColor by animateColorAsState(
+        targetValue = if (focused) NeuAccent else NeuTextSecondary,
+        animationSpec = tween(Motion.Medium),
+        label = "labelColor"
+    )
     Column(modifier = modifier) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = NeuTextSecondary,
+            color = labelColor,
             modifier = Modifier.padding(start = 6.dp, bottom = 6.dp)
         )
         BasicTextField(
@@ -283,9 +349,11 @@ fun NeuTextField(
                 keyboardType = keyboardType,
                 imeAction = if (singleLine) imeAction else ImeAction.Default
             ),
+            interactionSource = interaction,
             modifier = Modifier
                 .fillMaxWidth()
-                .neuInset(corner = 16.dp, depth = 4.dp),
+                .neuInset(corner = 16.dp, depth = 4.dp)
+                .border(1.5.dp, NeuAccent.copy(alpha = glow * 0.85f), RoundedCornerShape(16.dp)),
             decorationBox = { innerTextField ->
                 Box(
                     modifier = Modifier
@@ -308,7 +376,7 @@ fun NeuTextField(
     }
 }
 
-/** Square check box: raised when off, sunken with an amber tick when on. */
+/** Square check box: it sinks in and the amber tick pops up with a little overshoot. */
 @Composable
 fun NeuCheckbox(
     checked: Boolean,
@@ -316,6 +384,12 @@ fun NeuCheckbox(
     modifier: Modifier = Modifier,
     enabled: Boolean = true
 ) {
+    val progress by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = ToggleSpring,
+        label = "check"
+    )
+    val haptics = LocalHapticFeedback.current
     Box(
         modifier = modifier
             .size(48.dp)
@@ -325,42 +399,53 @@ fun NeuCheckbox(
                 indication = null,
                 enabled = enabled,
                 role = Role.Checkbox,
-                onValueChange = onCheckedChange
+                onValueChange = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onCheckedChange(it)
+                }
             ),
         contentAlignment = Alignment.Center
     ) {
-        val box = Modifier.size(28.dp)
         Box(
-            modifier = if (checked) {
-                box.neuInset(corner = 9.dp, depth = 3.dp)
-            } else {
-                box.neuRaised(corner = 9.dp, elevation = 4.dp)
-            },
+            modifier = Modifier
+                .size(28.dp)
+                .neuPressable(pressProgress = { progress }, corner = 9.dp, elevation = 4.dp),
             contentAlignment = Alignment.Center
         ) {
-            if (checked) {
-                Icon(
-                    imageVector = NeuIcons.Check,
-                    contentDescription = null,
-                    tint = NeuAccent,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+            Icon(
+                imageVector = NeuIcons.Check,
+                contentDescription = null,
+                tint = NeuAccent,
+                modifier = Modifier
+                    .size(18.dp)
+                    .graphicsLayer {
+                        scaleX = progress
+                        scaleY = progress
+                        alpha = progress.coerceIn(0f, 1f)
+                    }
+            )
         }
     }
 }
 
-/** Sliding switch with a sunken track and a raised thumb. */
+/** Sliding switch with a sunken track; the thumb springs across and changes colour. */
 @Composable
 fun NeuSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val thumbOffset by animateDpAsState(
-        targetValue = if (checked) 24.dp else 0.dp,
-        label = "switchThumb"
+    val progress by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f),
+        label = "switch"
     )
+    val thumbColor by animateColorAsState(
+        targetValue = if (checked) NeuAccent else NeuSurface,
+        animationSpec = tween(Motion.Medium),
+        label = "thumbColor"
+    )
+    val haptics = LocalHapticFeedback.current
     Box(
         modifier = modifier
             .size(width = 58.dp, height = 34.dp)
@@ -369,25 +454,23 @@ fun NeuSwitch(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 role = Role.Switch,
-                onValueChange = onCheckedChange
+                onValueChange = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onCheckedChange(it)
+                }
             )
             .neuInset(corner = 17.dp, depth = 3.dp)
             .padding(4.dp)
     ) {
         Box(
             modifier = Modifier
-                .offset(x = thumbOffset)
+                .offset { IntOffset((24.dp.toPx() * progress).roundToInt(), 0) }
                 .size(26.dp)
-                .neuRaised(
-                    corner = 13.dp,
-                    elevation = 3.dp,
-                    body = if (checked) NeuAccent else NeuSurface
-                )
+                .neuRaised(corner = 13.dp, elevation = 3.dp, body = thumbColor)
         )
     }
 }
 
-/** A label with a switch on the right, used for options. */
 @Composable
 fun NeuSwitchRow(
     title: String,
@@ -419,7 +502,6 @@ fun NeuSwitchRow(
     }
 }
 
-/** Slider in a sunken groove. */
 @Composable
 fun NeuSlider(
     value: Float,
@@ -454,7 +536,7 @@ fun NeuSlider(
 // Feedback
 // ---------------------------------------------------------------------------------------------
 
-/** Progress groove. A null [progress] shows a pulsing indeterminate bar. */
+/** Progress groove. Values glide to the new position; null shows a pulsing indeterminate bar. */
 @Composable
 fun NeuProgressBar(progress: Float?, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "busy")
@@ -467,7 +549,12 @@ fun NeuProgressBar(progress: Float?, modifier: Modifier = Modifier) {
         ),
         label = "busyPulse"
     )
-    val fraction = (progress ?: pulse).coerceIn(0.02f, 1f)
+    val glide by animateFloatAsState(
+        targetValue = progress ?: 0f,
+        animationSpec = tween(durationMillis = 350, easing = Motion.EmphasizedDecelerate),
+        label = "progressGlide"
+    )
+    val fraction = (if (progress != null) glide else pulse).coerceIn(0.02f, 1f)
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -485,7 +572,6 @@ fun NeuProgressBar(progress: Float?, modifier: Modifier = Modifier) {
     }
 }
 
-/** Read-only fact shown in a small sunken pill. */
 @Composable
 fun InfoPill(text: String, modifier: Modifier = Modifier, highlight: Boolean = false) {
     Box(
@@ -532,6 +618,7 @@ fun ChipFlow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
 // Layout helpers
 // ---------------------------------------------------------------------------------------------
 
+/** Top bar whose subtitle cross-fades when it changes (for example "Unsaved changes"). */
 @Composable
 fun NeuTopBar(
     title: String,
@@ -563,14 +650,22 @@ fun NeuTopBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (subtitle != null) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NeuTextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+            AnimatedContent(
+                targetState = subtitle,
+                transitionSpec = {
+                    fadeIn(tween(Motion.Medium)) togetherWith fadeOut(tween(Motion.Quick))
+                },
+                label = "subtitle"
+            ) { text ->
+                if (text != null) {
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (text == "Unsaved changes") NeuAccent else NeuTextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
         actions()
