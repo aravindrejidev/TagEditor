@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
@@ -68,6 +69,45 @@ fun Modifier.neuInset(
     .drawBehind {
         val radius = minOf(corner.toPx(), size.minDimension / 2f)
         drawInnerShadows(radius, depth.toPx(), fill, light, dark)
+    }
+
+/**
+ * Raised surface that can be pushed in. [pressProgress] (0 = resting, 1 = fully pressed) is read
+ * while drawing, so animating it never recomposes: the surface shrinks a little, its outer shadow
+ * collapses and the inner shadows fade in.
+ */
+fun Modifier.neuPressable(
+    pressProgress: () -> Float,
+    corner: Dp = 20.dp,
+    elevation: Dp = 8.dp,
+    body: Color = NeuSurface,
+    light: Color = NeuLight,
+    dark: Color = NeuDark
+): Modifier = this
+    .graphicsLayer {
+        val scale = 1f - 0.035f * pressProgress().coerceIn(0f, 1f)
+        scaleX = scale
+        scaleY = scale
+    }
+    .drawBehind {
+        val press = pressProgress().coerceIn(0f, 1f)
+        val radius = minOf(corner.toPx(), size.minDimension / 2f)
+        drawRaisedShadows(radius, elevation.toPx() * (1f - 0.7f * press), body, light, dark)
+    }
+    .clip(RoundedCornerShape(corner))
+    .background(
+        Brush.linearGradient(
+            colors = listOf(lerp(body, Color.White, 0.05f), lerp(body, Color.Black, 0.12f)),
+            start = Offset.Zero,
+            end = Offset.Infinite
+        )
+    )
+    .drawBehind {
+        val press = pressProgress().coerceIn(0f, 1f)
+        if (press > 0.01f) {
+            val radius = minOf(corner.toPx(), size.minDimension / 2f)
+            drawInnerShadows(radius, 4.dp.toPx(), body, light, dark, press)
+        }
     }
 
 private fun DrawScope.drawRaisedShadows(
@@ -121,8 +161,10 @@ private fun DrawScope.drawInnerShadows(
     depth: Float,
     fill: Color,
     light: Color,
-    dark: Color
+    dark: Color,
+    strength: Float = 1f
 ) {
+    val k = strength.coerceIn(0f, 1f)
     if (Build.VERSION.SDK_INT >= NATIVE_SHADOW_API) {
         // A big frame with a rounded hole: its shadow falls into the hole, i.e. onto the inside
         // of the element. The caller already clipped drawing to the element's shape.
@@ -137,19 +179,19 @@ private fun DrawScope.drawInnerShadows(
             val native = paint.asFrameworkPaint()
             native.isAntiAlias = true
             native.color = fill.toArgb()
-            native.setShadowLayer(depth * 1.6f, depth, depth, dark.copy(alpha = 0.95f).toArgb())
+            native.setShadowLayer(depth * 1.6f, depth, depth, dark.copy(alpha = 0.95f * k).toArgb())
             canvas.drawPath(frame, paint)
-            native.setShadowLayer(depth * 1.6f, -depth, -depth, light.copy(alpha = 0.85f).toArgb())
+            native.setShadowLayer(depth * 1.6f, -depth, -depth, light.copy(alpha = 0.85f * k).toArgb())
             canvas.drawPath(frame, paint)
         }
     } else {
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    dark.copy(alpha = 0.9f),
+                    dark.copy(alpha = 0.9f * k),
                     dark.copy(alpha = 0f),
                     light.copy(alpha = 0f),
-                    light.copy(alpha = 0.6f)
+                    light.copy(alpha = 0.6f * k)
                 ),
                 start = Offset.Zero,
                 end = Offset(size.width, size.height)
