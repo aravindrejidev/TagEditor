@@ -1,6 +1,13 @@
 package com.app.tageditor.ui.screens
 
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,23 +37,25 @@ import com.app.tageditor.ui.components.GenrePickerDialog
 import com.app.tageditor.ui.components.NeuButton
 import com.app.tageditor.ui.components.NeuCard
 import com.app.tageditor.ui.components.NeuIconButton
-import com.app.tageditor.ui.components.NeuProgressBar
 import com.app.tageditor.ui.components.NeuSwitchRow
 import com.app.tageditor.ui.components.NeuTextField
 import com.app.tageditor.ui.components.NeuTopBar
 import com.app.tageditor.ui.components.NeuWell
 import com.app.tageditor.ui.components.PillRow
 import com.app.tageditor.ui.components.SectionLabel
+import com.app.tageditor.ui.components.SkeletonBlock
 import com.app.tageditor.ui.infoPills
+import com.app.tageditor.ui.theme.Motion
 import com.app.tageditor.ui.theme.NeuError
 import com.app.tageditor.ui.theme.NeuIcons
-import com.app.tageditor.ui.theme.NeuTextPrimary
 import com.app.tageditor.ui.theme.NeuTextSecondary
+import com.app.tageditor.ui.theme.staggeredEntrance
 import com.app.tageditor.viewmodel.EditorState
 
 /**
  * Shows every tag that is currently stored in the song, pre-filled, and lets the user change
- * whatever is needed. Also manages the embedded cover art.
+ * whatever is needed. Sections glide in one after another, and the Save bar only appears (with a
+ * spring) once there is something to save.
  */
 @Composable
 fun EditorScreen(
@@ -77,21 +86,17 @@ fun EditorScreen(
 
         when {
             editor.loading -> {
-                Box(
+                Column(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
-                    NeuCard(modifier = Modifier.padding(32.dp)) {
-                        Text(
-                            text = "Reading tags",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = NeuTextPrimary
-                        )
-                        Spacer(Modifier.height(14.dp))
-                        NeuProgressBar(progress = null, modifier = Modifier.padding(horizontal = 24.dp))
-                    }
+                    SkeletonBlock(height = 120.dp, corner = 24.dp)
+                    SkeletonBlock(height = 300.dp, corner = 24.dp)
+                    SkeletonBlock(height = 58.dp, corner = 16.dp)
+                    SkeletonBlock(height = 58.dp, corner = 16.dp)
+                    SkeletonBlock(height = 58.dp, corner = 16.dp)
                 }
             }
 
@@ -103,7 +108,7 @@ fun EditorScreen(
                         .padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    NeuWell {
+                    NeuWell(modifier = Modifier.staggeredEntrance(0)) {
                         Text(
                             text = "This file could not be read",
                             style = MaterialTheme.typography.titleMedium,
@@ -127,7 +132,7 @@ fun EditorScreen(
                         .padding(horizontal = 20.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
-                    NeuCard(modifier = Modifier.fillMaxWidth()) {
+                    NeuCard(modifier = Modifier.fillMaxWidth().staggeredEntrance(0)) {
                         SectionLabel("Location")
                         Spacer(Modifier.height(8.dp))
                         SelectionContainer {
@@ -157,16 +162,17 @@ fun EditorScreen(
                         onMaxPxChange = onMaxPxChange,
                         onKeepOriginalChange = onKeepOriginalChange,
                         onExport = onExportCover,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().staggeredEntrance(1)
                     )
 
                     NeuTextField(
                         value = editor.edited.title,
                         onValueChange = { onEdit(TagKey.TITLE, it) },
                         label = "Title",
+                        modifier = Modifier.staggeredEntrance(2),
                         capitalization = KeyboardCapitalization.Words
                     )
-                    NeuCard(modifier = Modifier.fillMaxWidth()) {
+                    NeuCard(modifier = Modifier.fillMaxWidth().staggeredEntrance(3)) {
                         NeuSwitchRow(
                             title = "Rename file as title",
                             subtitle = "After saving, the file is named after the title",
@@ -178,21 +184,27 @@ fun EditorScreen(
                         value = editor.edited.artist,
                         onValueChange = { onEdit(TagKey.ARTIST, it) },
                         label = "Artist",
+                        modifier = Modifier.staggeredEntrance(4),
                         capitalization = KeyboardCapitalization.Words
                     )
                     NeuTextField(
                         value = editor.edited.album,
                         onValueChange = { onEdit(TagKey.ALBUM, it) },
                         label = "Album",
+                        modifier = Modifier.staggeredEntrance(5),
                         capitalization = KeyboardCapitalization.Words
                     )
                     NeuTextField(
                         value = editor.edited.albumArtist,
                         onValueChange = { onEdit(TagKey.ALBUM_ARTIST, it) },
                         label = "Album artist",
+                        modifier = Modifier.staggeredEntrance(6),
                         capitalization = KeyboardCapitalization.Words
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(
+                        modifier = Modifier.staggeredEntrance(7),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
                         NeuTextField(
                             value = editor.edited.year,
                             onValueChange = { onEdit(TagKey.YEAR, it) },
@@ -209,7 +221,10 @@ fun EditorScreen(
                             capitalization = KeyboardCapitalization.None
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(
+                        modifier = Modifier.staggeredEntrance(8),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
                         NeuTextField(
                             value = editor.edited.disc,
                             onValueChange = { onEdit(TagKey.DISC, it) },
@@ -226,7 +241,10 @@ fun EditorScreen(
                             keyboardType = KeyboardType.Number
                         )
                     }
-                    Row(verticalAlignment = Alignment.Bottom) {
+                    Row(
+                        modifier = Modifier.staggeredEntrance(9),
+                        verticalAlignment = Alignment.Bottom
+                    ) {
                         NeuTextField(
                             value = editor.edited.genre,
                             onValueChange = { onEdit(TagKey.GENRE, it) },
@@ -241,7 +259,10 @@ fun EditorScreen(
                             onClick = { showGenres.value = true }
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(
+                        modifier = Modifier.staggeredEntrance(10),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
                         NeuTextField(
                             value = editor.edited.key,
                             onValueChange = { onEdit(TagKey.KEY, it) },
@@ -263,24 +284,28 @@ fun EditorScreen(
                         value = editor.edited.composer,
                         onValueChange = { onEdit(TagKey.COMPOSER, it) },
                         label = "Composer",
+                        modifier = Modifier.staggeredEntrance(11),
                         capitalization = KeyboardCapitalization.Words
                     )
                     NeuTextField(
                         value = editor.edited.lyricist,
                         onValueChange = { onEdit(TagKey.LYRICIST, it) },
                         label = "Lyricist",
+                        modifier = Modifier.staggeredEntrance(12),
                         capitalization = KeyboardCapitalization.Words
                     )
                     NeuTextField(
                         value = editor.edited.encoder,
                         onValueChange = { onEdit(TagKey.ENCODER, it) },
                         label = "Encoder",
+                        modifier = Modifier.staggeredEntrance(13),
                         capitalization = KeyboardCapitalization.None
                     )
                     NeuTextField(
                         value = editor.edited.comment,
                         onValueChange = { onEdit(TagKey.COMMENT, it) },
                         label = "Comment",
+                        modifier = Modifier.staggeredEntrance(14),
                         singleLine = false,
                         minLines = 2,
                         imeAction = ImeAction.Default
@@ -289,6 +314,7 @@ fun EditorScreen(
                         value = editor.edited.lyrics,
                         onValueChange = { onEdit(TagKey.LYRICS, it) },
                         label = "Lyrics",
+                        modifier = Modifier.staggeredEntrance(14),
                         singleLine = false,
                         minLines = 6,
                         imeAction = ImeAction.Default
@@ -297,34 +323,44 @@ fun EditorScreen(
                     NeuButton(
                         text = "Rename file from tags",
                         onClick = onRenameFromTags,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().staggeredEntrance(14),
                         icon = NeuIcons.Edit,
                         enabled = !editor.dirty
                     )
                     Spacer(Modifier.height(8.dp))
                 }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                AnimatedVisibility(
+                    visible = editor.canSave,
+                    enter = fadeIn(tween(Motion.Medium)) + expandVertically(
+                        animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)
+                    ),
+                    exit = fadeOut(tween(Motion.Quick)) + shrinkVertically(
+                        animationSpec = tween(Motion.Medium)
+                    )
                 ) {
-                    NeuButton(
-                        text = "Revert",
-                        onClick = onRevert,
-                        modifier = Modifier.weight(1f),
-                        icon = NeuIcons.Undo,
-                        enabled = editor.dirty
-                    )
-                    NeuButton(
-                        text = "Save",
-                        onClick = onSave,
-                        modifier = Modifier.weight(1.4f),
-                        icon = NeuIcons.Save,
-                        primary = true,
-                        enabled = editor.canSave
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        NeuButton(
+                            text = "Revert",
+                            onClick = onRevert,
+                            modifier = Modifier.weight(1f),
+                            icon = NeuIcons.Undo,
+                            enabled = editor.dirty
+                        )
+                        NeuButton(
+                            text = "Save",
+                            onClick = onSave,
+                            modifier = Modifier.weight(1.4f),
+                            icon = NeuIcons.Save,
+                            primary = true,
+                            enabled = editor.canSave
+                        )
+                    }
                 }
             }
         }
