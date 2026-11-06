@@ -59,6 +59,9 @@ object NeuIcons {
     val Download: ImageVector by lazy {
         icon("Download", "M19,9h-4V3H9v6H5l7,7 7,-7zM5,18v2h14v-2H5z")
     }
+    val Upload: ImageVector by lazy {
+        icon("Upload", "M9,16h6v-6h4l-7,-7 -7,7h4zM5,18h14v2H5z")
+    }
     val Tune: ImageVector by lazy {
         icon(
             "Tune",

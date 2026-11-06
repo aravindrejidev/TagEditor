@@ -10,6 +10,8 @@ Kotlin, Jetpack Compose, Material 3, jaudiotagger. Builds on GitHub Actions - no
   title, artist, album, album artist, year, genre (with a picker), track, disc, BPM, key,
   language, composer, lyricist, encoder, comment and lyrics. Track and disc accept `3` or `3/12`.
   Optional *Rename file as title* when saving.
+  Lyrics can be typed or loaded from an `.lrc`, `.elrc` or `.ttml` file (also `.txt`); synced files
+  are stored in the tag exactly as they are, timestamps included.
 * **Album art manager:** shows the embedded cover, saves it as an image file, replaces it with
   a picture from the gallery (optionally resized) or removes it.
 * **Batch editing:** pick files or a whole album folder and write album, album artist, artist,

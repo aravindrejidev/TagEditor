@@ -185,6 +185,7 @@ fun TagEditorApp(
                                     onEdit = vm::editField,
                                     onSave = vm::saveEditor,
                                     onRevert = vm::revertEditor,
+                                    onImportLyrics = vm::importLyricsFile,
                                     onRenameAsTitle = vm::setRenameAsTitle,
                                     onRenameFromTags = vm::openRenameForEditor,
                                     onPickCover = vm::pickEditorCover,

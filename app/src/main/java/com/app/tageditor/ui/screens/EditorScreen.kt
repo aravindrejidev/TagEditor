@@ -34,6 +34,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.app.tageditor.data.TagKey
 import com.app.tageditor.ui.components.GenrePickerDialog
+import com.app.tageditor.ui.components.LyricsImportRow
 import com.app.tageditor.ui.components.NeuButton
 import com.app.tageditor.ui.components.NeuCard
 import com.app.tageditor.ui.components.NeuIconButton
@@ -66,6 +67,7 @@ fun EditorScreen(
     onEdit: (TagKey, String) -> Unit,
     onSave: () -> Unit,
     onRevert: () -> Unit,
+    onImportLyrics: (Uri) -> Unit,
     onRenameAsTitle: (Boolean) -> Unit,
     onRenameFromTags: () -> Unit,
     onPickCover: (Uri) -> Unit,
@@ -310,15 +312,23 @@ fun EditorScreen(
                         minLines = 2,
                         imeAction = ImeAction.Default
                     )
-                    NeuTextField(
-                        value = editor.edited.lyrics,
-                        onValueChange = { onEdit(TagKey.LYRICS, it) },
-                        label = "Lyrics",
+                    Column(
                         modifier = Modifier.staggeredEntrance(14),
-                        singleLine = false,
-                        minLines = 6,
-                        imeAction = ImeAction.Default
-                    )
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        NeuTextField(
+                            value = editor.edited.lyrics,
+                            onValueChange = { onEdit(TagKey.LYRICS, it) },
+                            label = "Lyrics",
+                            singleLine = false,
+                            minLines = 6,
+                            imeAction = ImeAction.Default
+                        )
+                        LyricsImportRow(
+                            lyrics = editor.edited.lyrics,
+                            onImport = onImportLyrics
+                        )
+                    }
 
                     NeuButton(
                         text = "Rename file from tags",

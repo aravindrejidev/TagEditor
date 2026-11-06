@@ -191,6 +191,34 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /**
+     * Fills the lyrics field from an LRC / ELRC / TTML / TXT file. The text goes into the editor
+     * like a typed edit, so it is only written to the song when the user taps Save.
+     */
+    fun importLyricsFile(uri: Uri) {
+        val target = _state.value.editor?.item?.uri ?: return
+        viewModelScope.launch {
+            setBusy("Reading lyrics file")
+            val result = runCatching { repo.readLyricsFile(uri) }
+            clearBusy()
+            result.onSuccess { file ->
+                _state.update { s ->
+                    val current = s.editor
+                    if (current == null || current.item.uri != target) {
+                        s
+                    } else {
+                        s.copy(
+                            editor = current.copy(
+                                edited = current.edited.withValue(TagKey.LYRICS, file.text)
+                            )
+                        )
+                    }
+                }
+                toast("Lyrics loaded from ${file.name} (${file.format.label}). Tap Save to write them.")
+            }.onFailure { toast("Could not import lyrics: ${friendly(it)}") }
+        }
+    }
+
     fun revertEditor() {
         _state.update { s ->
             val current = s.editor

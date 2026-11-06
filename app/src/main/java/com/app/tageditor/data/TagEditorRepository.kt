@@ -14,10 +14,12 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
@@ -285,6 +287,38 @@ class TagEditorRepository(context: Context) {
                 ?: throw IOException("Could not read the selected image")
             ImageTools.prepareCover(raw, maxPx, keepOriginal)
         }
+
+    /**
+     * Reads a lyrics file (LRC, ELRC, TTML, TXT) picked by the user. The text is returned
+     * unchanged apart from line breaks, so timestamps survive into the tag.
+     */
+    suspend fun readLyricsFile(uri: Uri): LyricsFile = withContext(Dispatchers.IO) {
+        val name = queryNameAndSize(uri)?.first
+            ?: uri.lastPathSegment?.substringAfterLast('/')
+            ?: "lyrics"
+        if (!LyricsFiles.isSupported(name)) {
+            throw IOException("Unsupported file. Choose an .lrc, .elrc, .ttml, .xml or .txt file")
+        }
+        val bytes = resolver.openInputStream(uri)?.use { readLimited(it, LyricsFiles.MAX_BYTES) }
+            ?: throw IOException("Could not open the lyrics file")
+        LyricsFiles.parse(name, bytes)
+    }
+
+    private fun readLimited(input: InputStream, limit: Int): ByteArray {
+        val out = ByteArrayOutputStream()
+        val buffer = ByteArray(16 * 1024)
+        var total = 0
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > limit) {
+                throw IOException("The lyrics file is larger than ${limit / (1024 * 1024)} MB")
+            }
+            out.write(buffer, 0, read)
+        }
+        return out.toByteArray()
+    }
 
     /** Saves arbitrary bytes (an extracted cover image) to a document created by the user. */
     suspend fun writeBytes(target: Uri, bytes: ByteArray) {
