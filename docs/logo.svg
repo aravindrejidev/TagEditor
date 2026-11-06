@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Tag Editor app icon">
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2F353D"/>
+      <stop offset="1" stop-color="#1D2025"/>
+    </linearGradient>
+    <linearGradient id="well" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#181B1F"/>
+      <stop offset="1" stop-color="#262B31"/>
+    </linearGradient>
+    <linearGradient id="note" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC25E"/>
+      <stop offset="1" stop-color="#E8982A"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="14" flood-color="#F2A93B" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#plate)" stroke="#3A4049" stroke-width="3"/>
+  <circle cx="256" cy="256" r="176" fill="url(#well)" stroke="#14161A" stroke-width="4"/>
+  <circle cx="256" cy="256" r="176" fill="none" stroke="#3A4049" stroke-width="2" stroke-dasharray="520 600" transform="rotate(135 256 256)"/>
+  <g transform="translate(87 100) scale(13)" filter="url(#glow)">
+    <path fill="url(#note)" d="M12,3v10.55c-0.59,-0.34 -1.27,-0.55 -2,-0.55 -2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4V7h4V3h-6z"/>
+  </g>
+</svg>
