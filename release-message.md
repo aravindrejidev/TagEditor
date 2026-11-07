@@ -1,2 +1,2 @@
 ## What's new
-- Upgraded animations and transitions 
+- New Browse files 
