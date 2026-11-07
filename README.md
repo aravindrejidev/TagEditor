@@ -29,7 +29,7 @@
   <img alt="Jetpack Compose" src="https://img.shields.io/badge/UI-JETPACK_COMPOSE-4285f4?style=for-the-badge&labelColor=24282e&logo=jetpackcompose&logoColor=4285f4" />
   <img alt="jaudiotagger" src="https://img.shields.io/badge/TAG_ENGINE-JAUDIOTAGGER-f2a93b?style=for-the-badge&labelColor=24282e" />
   <img alt="Lossless saving" src="https://img.shields.io/badge/SAVING-LOSSLESS_%C2%B7_VERIFIED-39ff88?style=for-the-badge&labelColor=24282e" />
-  <img alt="No storage permission" src="https://img.shields.io/badge/STORAGE_PERMISSION-NONE-a78bfa?style=for-the-badge&labelColor=24282e" />
+  <img alt="Built-in file browser" src="https://img.shields.io/badge/FILE_BROWSER-BUILT--IN-a78bfa?style=for-the-badge&labelColor=24282e" />
 </p>
 <br/>
 
@@ -47,7 +47,7 @@
 <a id="about"></a>
 ## 🌟 About the Project
 
-**Tag Editor** is a native Android app for people who want their music library to look right: correct titles, artists and albums, a proper cover on every song, track numbers in order, and lyrics that scroll in time. It opens your files through Android's own file picker, edits only the tags and writes them straight back into the original file.
+**Tag Editor** is a native Android app for people who want their music library to look right: correct titles, artists and albums, a proper cover on every song, track numbers in order, and lyrics that scroll in time. It lists every song on your phone with its cover, lets you browse folders with a built-in file browser, edits only the tags and writes them straight back into the original file.
 
 It handles one song in full detail (every field the file stores, cover art and lyrics) or a whole album at once (batch edit, automatic track numbers, one cover for every track, and file names built from tags). Lyrics can be typed or loaded from `.lrc`, `.elrc` and `.ttml` files with their timestamps kept.
 
@@ -59,7 +59,7 @@ No accounts. No ads. No telemetry. Your music is never uploaded; the network is 
 
 <!--
   SCREENSHOTS: add your images to docs/screenshots/ and remove this comment markup
-  to show the gallery. Suggested shots: Home (file list), Editor, Lyrics import,
+  to show the gallery. Suggested shots: Home (All and Browse), Editor, Lyrics import,
   Album art, Batch edit, Rename from tags.
 
 <br/>
@@ -91,6 +91,12 @@ No accounts. No ads. No telemetry. Your music is never uploaded; the network is 
   <tr>
     <td width="50%" valign="top">
 
+#### Find Your Songs
+- **All** — every MP3, FLAC and M4A that Android's media library knows, with its cover picture, title, artist and album. A search box and a rescan button sit on top.
+- **Browse** — a built-in file browser for internal storage and any SD card or USB drive. Folders first, then songs, with an up button, and the back button climbs out of a folder.
+- **Same tools in both** — tap a song to edit it, tick several for batch edit or rename. The selection is cleared when you change list or folder.
+- **Cover thumbnails** — the embedded cover of each song, so songs without a cover stand out.
+
 #### Single-File Editor
 - **Everything the file stores** — title, artist, album, album artist, year, genre, track, disc, BPM, key, language, composer, lyricist, encoder, comment and lyrics, pre-filled and editable.
 - **Track and disc as `3` or `3/12`** — the number and the total are stored separately, as the formats expect.
@@ -115,7 +121,7 @@ No accounts. No ads. No telemetry. Your music is never uploaded; the network is 
     <td width="50%" valign="top">
 
 #### Batch Editing
-- **Pick files or a whole album folder** — sub-folders are scanned too, and a folder scan is sorted naturally (Track 2 comes before Track 10).
+- **Tick songs in All or Browse** — a folder is listed in natural order (Track 2 comes before Track 10), so Select all gives album order.
 - **Write once, apply to all** — album, album artist, artist, year, genre, disc, composer, comment and cover.
 - **See what differs** — fields show the value all songs share, or a few of the different values found.
 - **Automatic track numbers** — writes `1/12`, `2/12` … in the order of your list.
@@ -130,7 +136,7 @@ No accounts. No ads. No telemetry. Your music is never uploaded; the network is 
 #### Lossless and Safe
 - **Tags only** — the audio stream is never decoded or re-encoded.
 - **Edit a copy, verify, then replace** — and restore the original bytes automatically if writing fails half way.
-- **No storage permission** — files come through Android's Storage Access Framework, which also works with scoped storage on Android 10+.
+- **Direct file access** — songs are edited in place through "All files access" (Android 11+) or the classic storage permission (older Android). No copies are left behind, and the media library is told about every change.
 
 #### Interface
 - **Dark neumorphic design** — raised cards, pressed-in fields and a warm amber accent, drawn with custom components.
@@ -193,11 +199,11 @@ Open a song, scroll to **Lyrics** and tap **Import lyrics file**. The text appea
 <a id="safe-saving"></a>
 ## 🛡️ How Saving Stays Safe
 
-No storage permission is used. Files come from the Storage Access Framework (`ACTION_OPEN_DOCUMENT` and `ACTION_OPEN_DOCUMENT_TREE`). Because the tag library needs a real file, every save goes through a private working copy:
+Songs are opened by their real path. Because the tag library works on a file of its own, every save goes through a private working copy:
 
 ```mermaid
 flowchart LR
-    A["🎵 Your file<br/>picked with the system picker"] --> B["Private copy<br/>app cache"]
+    A["🎵 Your song<br/>on your phone"] --> B["Private copy<br/>app cache"]
     B --> C["Write the tags<br/>jaudiotagger"]
     C --> D{"Read it again:<br/>sample rate, channels<br/>and duration the same?"}
     D -->|"yes"| E["Overwrite the original"]
@@ -207,10 +213,10 @@ flowchart LR
 
 | Step | What happens |
 |---|---|
-| **1. Copy** | The document is copied to the app's private cache (jaudiotagger needs a real file), and a second copy is kept as a backup. |
+| **1. Copy** | The song is copied to the app's private cache, and a second copy is kept as a backup. |
 | **2. Write** | Only the changed tags and cover are written to the working copy. |
 | **3. Verify** | The working copy is read again. Its sample rate, channel layout and duration (within one second) must match the original, otherwise nothing is written. |
-| **4. Replace** | The original document is overwritten. If that fails, the untouched original bytes are copied back automatically. |
+| **4. Replace** | The original file is overwritten and the media library is told to rescan it. If writing fails, the untouched original bytes are copied back automatically. |
 
 ---
 
@@ -234,13 +240,14 @@ Grab `TagEditor-<version>.apk` from the [Releases](https://github.com/aravindrej
 
 ### Getting Started
 
-1. Open Tag Editor and tap **Open files** to pick songs, or **Open folder** to load a whole album.
-2. Tap a song to edit it, change what you need and press **Save**.
-3. Tick several songs to **batch edit** them, or press **Rename** to name the files from their tags.
-4. Open **Lyrics → Import lyrics file** to add synced lyrics, and use **Album art** to replace or export the cover.
+1. Open Tag Editor and tap **Allow access**. Android asks for audio access first, then opens the **All files access** switch: turn it on for Tag Editor and come back.
+2. Use **All** to see every song on the phone (search by file name or folder), or **Browse** to walk through folders yourself.
+3. Tap a song to edit it, change what you need and press **Save**.
+4. Tick several songs to **batch edit** them, or press **Rename** to name the files from their tags.
+5. Open **Lyrics → Import lyrics file** to add synced lyrics, and use **Album art** to replace or export the cover.
 
 > [!TIP]
-> Android 11 and newer do not let apps pick the root of internal storage or the `Download` folder itself. Choose the album sub-folder (for example `Music/My Album`) with **Open folder**.
+> **All** shows what Android's media library has indexed as music. A song that is missing there (for example one that was just copied over) is still reachable in **Browse**, and the rescan button next to the search box refreshes the list.
 
 <a id="updates"></a>
 ### Updates
@@ -251,7 +258,9 @@ Tap the version chip on the Home screen to check for a new release. Tag Editor r
 
 | Permission | Why |
 |---|---|
-| *None for storage* | Audio files are opened with the system file picker, so no storage permission is requested. |
+| `MANAGE_EXTERNAL_STORAGE` | "All files access" (Android 11+): browse any folder and write tags straight into your songs. It is asked for once and can be switched off in the system settings at any time. |
+| `READ_MEDIA_AUDIO` | Android 13+: read the media library for the **All** tab. |
+| `READ_EXTERNAL_STORAGE` / `WRITE_EXTERNAL_STORAGE` | Android 12 and older: the classic storage permissions (write is needed up to Android 10 only). |
 | `INTERNET` | Only to check GitHub for new releases and download an update you chose to install. |
 | `REQUEST_INSTALL_PACKAGES` | So Android can install the downloaded update. |
 
@@ -275,7 +284,7 @@ Press **Rename** on the file list, or **Rename file from tags** in the editor. T
 The default template is `%track% - %artist% - %title%`. For example, `03 - Artist - Song.flac`.
 
 > [!NOTE]
-> Renaming uses `DocumentsContract.renameDocument`. Some cloud storage providers do not support it and will report an error for those files. The audio and tags are never touched by a rename.
+> A rename only changes the file name; the audio and tags are never touched. If another file in the folder already has the new name, that song is skipped and listed in the report afterwards.
 
 ---
 
@@ -328,10 +337,12 @@ flowchart TB
     end
     VM["TagEditorViewModel<br/>UiState · one-shot messages"]
     subgraph DATA["Data layer"]
-        REPO["TagEditorRepository<br/>file picker access · cache copies · verification"]
+        REPO["TagEditorRepository<br/>library · folders · cache copies · verification"]
+        FILES["LocalFiles<br/>storage volumes · folder listing"]
         PARSER["AudioFileParser<br/>jaudiotagger: MP3 · FLAC · M4A"]
         LYR["LyricsFiles<br/>LRC · ELRC · TTML detection"]
         REPO --> PARSER
+        REPO --> FILES
         REPO --> LYR
     end
     UPD["UpdateRepository<br/>GitHub Releases · SHA-256 check"]
@@ -342,10 +353,10 @@ flowchart TB
 
 | Folder | What it does |
 |---|---|
-| `data/` | `AudioFileParser` (reads and writes tags), `TagEditorRepository` (picker access, private copies, verified save, rename), `LyricsFile` (lyrics decoding and format detection), `FileNameTemplate`, `ImageTools`, `Genres` and the models |
+| `data/` | `AudioFileParser` (reads and writes tags), `TagEditorRepository` (media library, folders, cover thumbnails, private copies, verified save, rename), `LocalFiles` (storage volumes, folder listing and the access checks), `LyricsFile` (lyrics decoding and format detection), `FileNameTemplate`, `ImageTools`, `Genres` and the models |
 | `viewmodel/` | `TagEditorViewModel` and the `UiState` classes for the editor, batch and rename screens |
 | `ui/screens/` | `HomeScreen`, `EditorScreen`, `BatchScreen`, `RenameScreen` and `CoverArtPicker` |
-| `ui/components/` | The neumorphic building blocks, dialogs, file pickers and the lyrics import row |
+| `ui/components/` | The neumorphic building blocks, dialogs, the system pickers (cover images, export) and the lyrics import row |
 | `ui/theme/` | Colours, type, shapes, motion, icons and the soft-shadow drawing code |
 | `update/` | The in-app updater: release lookup, download, checksum and installer hand-off |
 | `.github/workflows/` | The release workflow |
@@ -358,7 +369,7 @@ These keep your files safe, and any change should respect them:
 - **Nothing is written without being verified.** Edit a private copy, check the audio stream, then replace the original, with automatic restore on failure.
 - **One file job at a time.** jaudiotagger keeps global options, so the repository serialises tag reading and writing behind a single lock.
 - **Only changes are written.** Fields are compared with the original values, and untouched tags are left alone.
-- **No broad storage access.** Every file comes through the system picker, so Tag Editor sees only what you choose.
+- **Files are touched only on request.** The library and the browser only read names and covers; a song is written only when you save, batch-apply or rename it.
 
 ### Tech stack
 
@@ -400,6 +411,7 @@ pie showData title What Tag Editor is made of (non-blank lines of code)
 </div>
 
 **Done**
+- [x] **All** tab with cover thumbnails and search, and a built-in **Browse** file browser
 - [x] Single-file editor with 16 fields, audio facts and a genre picker
 - [x] MP3 (ID3v1 / ID3v2), FLAC (Vorbis comments) and M4A / MP4 support
 - [x] Album art manager: replace, resize, export, remove and undo
@@ -413,7 +425,7 @@ pie showData title What Tag Editor is made of (non-blank lines of code)
 - [ ] Write MP3 lyrics also as an ID3 synced-lyrics (`SYLT`) frame, for players that read only that frame
 - [ ] Convert TTML and ELRC lyrics to plain LRC on import
 - [ ] Lyrics in batch editing
-- [ ] Search and sorting in the file list
+- [ ] Sorting options, and search by title or artist, in the song list
 
 Have an idea? Open an [issue](https://github.com/aravindrejidev/TagEditor/issues) and tell us.
 
@@ -445,9 +457,9 @@ Tag Editor is free and open source, with no ads or subscriptions. If it tidied u
 
 Contributions are welcome, whether it's a bug fix, a new feature, or better wording.
 
-- **Something not working?** Open an [issue](https://github.com/aravindrejidev/TagEditor/issues) with your phone model, Android version, the file format (MP3, FLAC or M4A), where the file lives (internal storage, SD card or cloud provider) and what you expected. For a lyrics problem, mention the file type and the player you use.
+- **Something not working?** Open an [issue](https://github.com/aravindrejidev/TagEditor/issues) with your phone model, Android version, the file format (MP3, FLAC or M4A), where the file lives (internal storage or SD card) and what you expected. For a lyrics problem, mention the file type and the player you use.
 - **Bigger changes:** open an issue first so we can talk it through.
-- **Pull requests** should build cleanly (`gradle :app:assembleDebug`), follow the official Kotlin code style, and keep to the [design rules](#design-rules): verify before replacing, one file job at a time, and no broad storage access.
+- **Pull requests** should build cleanly (`gradle :app:assembleDebug`), follow the official Kotlin code style, and keep to the [design rules](#design-rules): verify before replacing, one file job at a time, and never write to a song unless the user asked for it.
 
 ### 👥 Contributors
 
@@ -487,7 +499,7 @@ See the [LICENSE](LICENSE) file for details. Tag Editor uses jaudiotagger, which
 ### Disclaimer
 - **Back up what matters.** Saving rewrites the tags inside your file. Every save is verified and rolled back on failure, but a phone that loses power or a storage provider that misbehaves can still cause damage. Keep a copy of irreplaceable files.
 - **Lyrics are stored as text.** Imported LRC, ELRC and TTML content is written unchanged into the lyrics field. Whether a player shows it synced depends on the player, and Tag Editor does not write the separate ID3 synced-lyrics (`SYLT`) frame.
-- **Providers differ.** Some cloud or network storage providers cannot overwrite or rename files in place. Tag Editor reports the error and keeps the original file.
+- **Storage access.** Tag Editor needs "All files access" on Android 11 and newer. It uses it only to list songs, browse folders and write the tags you save. Some folders (such as `Android/data`) stay off limits on recent Android versions, and Tag Editor reports the error and keeps the original file whenever a write fails.
 - **Supported formats only.** MP3, FLAC and M4A / MP4 files. Other formats are skipped.
 - **Privacy.** Everything happens on the device. Tag Editor has no accounts and no telemetry, and it does not upload your music. The only network use is checking GitHub for app updates.
 

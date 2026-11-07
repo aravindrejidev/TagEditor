@@ -6,13 +6,23 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!--
-        No storage permissions are needed for editing: every audio file is opened through the
-        Storage Access Framework (ACTION_OPEN_DOCUMENT / ACTION_OPEN_DOCUMENT_TREE), which also
-        gives read/write access under Android 10+ scoped storage.
+        Songs are listed from the media library and browsed with the built-in file browser, and
+        tags are written straight into the files. That needs "All files access" on Android 11+
+        (MANAGE_EXTERNAL_STORAGE), plus the audio permission so the media library can be read.
+        Older Android versions use the classic storage permissions instead.
     -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
 
     <application
         android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"

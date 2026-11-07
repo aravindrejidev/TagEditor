@@ -116,7 +116,7 @@ data class ParsedAudio(
     val cover: CoverArt?
 )
 
-/** One audio document picked through the Storage Access Framework. */
+/** One audio file: a plain `file://` path (library, built-in browser) or a SAF document. */
 data class AudioItem(
     val uri: Uri,
     val name: String,
@@ -137,6 +137,8 @@ data class RenamedDoc(val uri: Uri, val name: String)
  * `/storage/emulated/0/Music/Album/song.flac`. Providers that use opaque ids only get the name.
  */
 fun friendlyPath(uri: Uri, fallbackName: String): String {
+    // Files opened with the built-in browser or the library carry their real path.
+    if (uri.scheme == "file") return uri.path ?: fallbackName
     val documentId = uri.lastPathSegment ?: return fallbackName
     val colon = documentId.indexOf(':')
     if (colon <= 0) return fallbackName

@@ -2,6 +2,7 @@ package com.app.tageditor.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -34,14 +35,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.app.tageditor.ui.components.BusyOverlay
 import com.app.tageditor.ui.components.NeuDialog
-import com.app.tageditor.ui.components.OpenAudioDocuments
-import com.app.tageditor.ui.components.OpenFolder
 import com.app.tageditor.ui.components.UpdateDialog
 import com.app.tageditor.ui.components.VersionChip
 import com.app.tageditor.ui.screens.BatchScreen
@@ -55,9 +55,11 @@ import com.app.tageditor.ui.theme.NeuShapes
 import com.app.tageditor.ui.theme.NeuSurface
 import com.app.tageditor.ui.theme.NeuTextPrimary
 import com.app.tageditor.ui.theme.NeuTextSecondary
+import com.app.tageditor.data.StorageAccess
 import com.app.tageditor.update.UpdateViewModel
 import com.app.tageditor.viewmodel.BusyState
 import com.app.tageditor.viewmodel.EditorState
+import com.app.tageditor.viewmodel.HomeTab
 import com.app.tageditor.viewmodel.Screen
 import com.app.tageditor.viewmodel.TagEditorViewModel
 
@@ -81,8 +83,9 @@ fun TagEditorApp(
     val snackbarHost = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
 
-    // Kept at the root so the list keeps its scroll position and rows animate in only once.
-    val listState = rememberLazyListState()
+    // Kept at the root so the lists keep their scroll position and rows animate in only once.
+    val allListState = rememberLazyListState()
+    val browseListState = rememberLazyListState()
     val seenRows = remember { HashSet<String>() }
     // Remember the last editor / busy state so screens can still be drawn while they animate out.
     val editorHolder = remember { arrayOfNulls<EditorState>(1) }
@@ -93,11 +96,37 @@ fun TagEditorApp(
     if (currentBusy != null) busyHolder[0] = currentBusy
     val returnTo = state.rename.returnTo
 
-    val openFiles = rememberLauncherForActivityResult(remember { OpenAudioDocuments() }) { uris ->
-        vm.onFilesPicked(uris)
+    val context = LocalContext.current
+
+    // Storage access comes in two steps: the audio permission, then the "All files access" switch
+    // in the system settings. Coming back from either one re-checks everything.
+    val settingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { vm.refreshAccess() }
+
+    fun openAllFilesSettings() {
+        try {
+            settingsLauncher.launch(StorageAccess.allFilesIntent(context))
+        } catch (e: Exception) {
+            try {
+                settingsLauncher.launch(StorageAccess.allFilesListIntent())
+            } catch (e2: Exception) {
+                vm.showMessage("Open Settings > Apps > Special access > All files access and allow Tag Editor.")
+            }
+        }
     }
-    val openFolder = rememberLauncherForActivityResult(remember { OpenFolder() }) { uri ->
-        if (uri != null) vm.onFolderPicked(uri)
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        if (!StorageAccess.hasRuntimePermissions(context)) {
+            vm.showMessage("Allow audio access for Tag Editor in the app settings, then come back.")
+            settingsLauncher.launch(StorageAccess.appSettingsIntent(context))
+        } else if (!StorageAccess.hasAllFilesAccess()) {
+            openAllFilesSettings()
+        } else {
+            vm.refreshAccess()
+        }
     }
 
     LaunchedEffect(vm) {
@@ -107,7 +136,9 @@ fun TagEditorApp(
         updateVm.messages.collect { message -> snackbarHost.showSnackbar(message) }
     }
 
-    BackHandler(enabled = state.screen != Screen.HOME && state.busy == null) {
+    // On Home the back button also climbs out of a folder in the file browser.
+    val canClimb = state.tab == HomeTab.BROWSE && state.browser.canGoUp
+    BackHandler(enabled = (state.screen != Screen.HOME || canClimb) && state.busy == null) {
         focusManager.clearFocus()
         vm.back()
     }
@@ -144,21 +175,31 @@ fun TagEditorApp(
                     when (screen) {
                         Screen.HOME -> {
                             HomeScreen(
+                                tab = state.tab,
+                                hasAccess = state.hasAccess,
                                 items = state.items,
                                 selected = state.selected,
                                 revision = state.revision,
-                                listState = listState,
+                                libraryLoading = state.libraryLoading,
+                                browser = state.browser,
+                                allListState = allListState,
+                                browseListState = browseListState,
                                 seenRows = seenRows,
-                                onOpenFiles = { openFiles.launch(Unit) },
-                                onOpenFolder = { openFolder.launch(Unit) },
+                                onTab = vm::selectTab,
+                                onAllowAccess = {
+                                    permissionLauncher.launch(StorageAccess.runtimePermissions())
+                                },
+                                onRefresh = vm::loadLibrary,
+                                onOpenFolder = vm::browseTo,
+                                onUp = vm::browseUp,
                                 onItemClick = vm::openEditor,
                                 onToggle = vm::toggleSelected,
-                                onSelectAll = vm::selectAll,
+                                onSelect = vm::selectItems,
                                 onClearSelection = vm::clearSelection,
-                                onClearList = vm::clearList,
                                 onBatch = vm::openBatch,
                                 onRename = vm::openRename,
-                                loadTags = { item -> vm.tagsFor(item) }
+                                loadTags = { item -> vm.tagsFor(item) },
+                                loadCover = { item -> vm.coverFor(item) }
                             )
                             // Installed version; tap to look for updates right now.
                             VersionChip(
@@ -167,10 +208,7 @@ fun TagEditorApp(
                                 onClick = { updateVm.checkForUpdate(manual = true) },
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .padding(
-                                        top = 14.dp,
-                                        end = if (state.items.isEmpty()) 20.dp else 84.dp
-                                    )
+                                    .padding(top = 14.dp, end = 20.dp)
                             )
                         }
 

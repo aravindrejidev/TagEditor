@@ -3,11 +3,15 @@ package com.app.tageditor.data
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -23,15 +27,18 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 /**
  * Everything that touches storage.
  *
- * Files are opened through the Storage Access Framework, so no storage permission is needed and
- * Android 10+ scoped storage is respected. Because jaudiotagger needs a real [File], each
- * document is copied into a private cache folder, edited there, verified, and only then written
- * back to the original document. The untouched original is kept until the write-back succeeded
- * and is restored automatically if anything goes wrong in between.
+ * Songs come from the media library and the built-in file browser as plain `file://` paths (the
+ * app has "All files access"); Storage Access Framework documents are still understood too.
+ * Because jaudiotagger needs a real [File], each song is copied into a private cache folder,
+ * edited there, verified, and only then written back to the original. The untouched original is
+ * kept until the write-back succeeded and is restored automatically if anything goes wrong in
+ * between.
  */
 class TagEditorRepository(context: Context) {
 
@@ -44,6 +51,12 @@ class TagEditorRepository(context: Context) {
     private val retrieverGate = Semaphore(3)
     private val quickCache = ConcurrentHashMap<String, TagData>()
 
+    /** Small cover thumbnails for the song lists, and the songs known to have no cover. */
+    private val thumbCache = object : LruCache<String, Bitmap>(THUMB_CACHE_BYTES) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    }
+    private val noCover = ConcurrentHashMap.newKeySet<String>()
+
     init {
         workDir.mkdirs()
         workDir.listFiles()?.forEach { it.delete() }
@@ -52,6 +65,107 @@ class TagEditorRepository(context: Context) {
     // ---------------------------------------------------------------------------------------
     // Picking & scanning
     // ---------------------------------------------------------------------------------------
+
+    /** Every song of the media library (MP3, FLAC, M4A), sorted by file name. */
+    @Suppress("DEPRECATION")
+    suspend fun listLibrary(): List<AudioItem> = withContext(Dispatchers.IO) {
+        val found = ArrayList<AudioItem>()
+        val projection = arrayOf(MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.SIZE)
+        val cursor = resolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            MediaStore.Audio.Media.IS_MUSIC + " != 0",
+            null,
+            null
+        )
+        cursor?.use { c ->
+            while (c.moveToNext()) {
+                val path = c.getString(0) ?: continue
+                val name = path.substringAfterLast('/')
+                if (!AudioFileParser.isSupported(name)) continue
+                found.add(
+                    AudioItem(
+                        uri = Uri.fromFile(File(path)),
+                        name = name,
+                        sizeBytes = if (c.isNull(1)) 0L else c.getLong(1),
+                        folder = LocalFiles.relativeFolder(path)
+                    )
+                )
+            }
+        }
+        found.sortedWith(Comparator<AudioItem> { x, y -> NaturalOrder.compare(x.name, y.name) })
+    }
+
+    suspend fun storageRoots(): List<StorageRoot> = withContext(Dispatchers.IO) {
+        LocalFiles.roots(appContext)
+    }
+
+    suspend fun listDirectory(dir: File): DirListing = withContext(Dispatchers.IO) {
+        LocalFiles.list(dir)
+    }
+
+    /**
+     * A small cover picture for song lists, read from the file's embedded art. Results are cached;
+     * null means the song has no (readable) embedded cover.
+     */
+    suspend fun coverThumb(item: AudioItem): Bitmap? {
+        val key = item.uri.toString()
+        thumbCache.get(key)?.let { return it }
+        if (key in noCover) return null
+        val bitmap = retrieverGate.withPermit {
+            withContext(Dispatchers.IO) { readThumb(item.uri) }
+        }
+        if (bitmap != null) thumbCache.put(key, bitmap) else noCover.add(key)
+        return bitmap
+    }
+
+    private fun readThumb(uri: Uri): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(appContext, uri)
+            val bytes = retriever.embeddedPicture ?: return null
+            val decoded = ImageTools.decodeSampled(bytes, THUMB_PX) ?: return null
+            val longest = max(decoded.width, decoded.height)
+            if (longest <= THUMB_PX) {
+                decoded
+            } else {
+                val scale = THUMB_PX.toFloat() / longest
+                Bitmap.createScaledBitmap(
+                    decoded,
+                    (decoded.width * scale).roundToInt().coerceAtLeast(1),
+                    (decoded.height * scale).roundToInt().coerceAtLeast(1),
+                    true
+                )
+            }
+        } catch (e: Exception) {
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+    }
+
+    /** Drops everything cached for a file whose content or name just changed. */
+    private fun forget(uri: Uri) {
+        val key = uri.toString()
+        quickCache.remove(key)
+        thumbCache.remove(key)
+        noCover.remove(key)
+    }
+
+    /** Tells the media library about changed or renamed files so other apps see the new tags. */
+    private fun rescan(vararg uris: Uri) {
+        val paths = uris.filter { it.scheme == "file" }.mapNotNull { it.path }
+        if (paths.isEmpty()) return
+        try {
+            MediaScannerConnection.scanFile(appContext, paths.toTypedArray(), null, null)
+        } catch (e: Exception) {
+            // Not important: the library catches up on its own later.
+        }
+    }
 
     /** Resolves names and sizes for documents returned by ACTION_OPEN_DOCUMENT. */
     suspend fun describe(uris: List<Uri>): List<AudioItem> = withContext(Dispatchers.IO) {
@@ -228,7 +342,8 @@ class TagEditorRepository(context: Context) {
                 saveBlocking(item, patch, cover)
             }
         }
-        quickCache.remove(item.uri.toString())
+        forget(item.uri)
+        rescan(item.uri)
     }
 
     private fun saveBlocking(item: AudioItem, patch: Map<TagKey, String>, cover: CoverChange) {
@@ -271,13 +386,31 @@ class TagEditorRepository(context: Context) {
         }
     }
 
-    /** Renames the document in place (the audio and tags are not touched). */
+    /** Renames the file in place (the audio and tags are not touched). */
     suspend fun rename(item: AudioItem, newName: String): RenamedDoc = withContext(Dispatchers.IO) {
+        if (item.uri.scheme == "file") {
+            return@withContext renameFile(item, newName)
+        }
         val newUri = DocumentsContract.renameDocument(resolver, item.uri, newName)
             ?: throw IOException("The storage provider refused to rename this file")
-        quickCache.remove(item.uri.toString())
+        forget(item.uri)
         val actualName = queryNameAndSize(newUri)?.first ?: newName
         RenamedDoc(newUri, actualName)
+    }
+
+    private fun renameFile(item: AudioItem, newName: String): RenamedDoc {
+        val source = File(item.uri.path ?: throw IOException("Unknown file location"))
+        val parent = source.parentFile ?: throw IOException("Unknown folder")
+        val target = File(parent, newName)
+        // A change of letter case only is the same file on case-insensitive storage.
+        if (target.exists() && !source.name.equals(newName, ignoreCase = true)) {
+            throw IOException("A file named \"$newName\" already exists in this folder")
+        }
+        if (!source.renameTo(target)) throw IOException("Android refused to rename this file")
+        forget(item.uri)
+        val newUri = Uri.fromFile(target)
+        rescan(item.uri, newUri)
+        return RenamedDoc(newUri, target.name)
     }
 
     /** Reads an image picked from the gallery and prepares it for embedding. */
@@ -375,5 +508,7 @@ class TagEditorRepository(context: Context) {
     private companion object {
         const val COPY_BUFFER = 256 * 1024
         const val MAX_SCAN_RESULTS = 5000
+        const val THUMB_PX = 160
+        const val THUMB_CACHE_BYTES = 24 * 1024 * 1024
     }
 }

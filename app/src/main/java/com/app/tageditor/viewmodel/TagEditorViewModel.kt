@@ -2,14 +2,15 @@ package com.app.tageditor.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.app.tageditor.data.AudioFileParser
 import com.app.tageditor.data.AudioItem
 import com.app.tageditor.data.CoverArt
 import com.app.tageditor.data.CoverChange
 import com.app.tageditor.data.FileNameTemplate
+import com.app.tageditor.data.StorageAccess
 import com.app.tageditor.data.TagData
 import com.app.tageditor.data.TagEditorRepository
 import com.app.tageditor.data.TagKey
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 import java.io.FileNotFoundException
 
 class TagEditorViewModel(application: Application) : AndroidViewModel(application) {
@@ -33,6 +35,7 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _state = MutableStateFlow(
         UiState(
+            hasAccess = StorageAccess.hasAccess(application),
             rename = RenameDraft(
                 template = prefs.getString(PREF_TEMPLATE, null) ?: FileNameTemplate.DEFAULT
             ),
@@ -46,6 +49,13 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** One-shot messages for the snackbar. */
     val messages: Flow<String> = messageChannel.receiveAsFlow()
+
+    init {
+        if (_state.value.hasAccess) {
+            loadLibrary()
+            startBrowser()
+        }
+    }
 
     // ---------------------------------------------------------------------------------------
     // Helpers
@@ -65,7 +75,7 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun friendly(t: Throwable): String = when (t) {
         is SecurityException ->
-            "No write permission for this file. Add it again with \"Open files\" or \"Open folder\"."
+            "No write permission for this file. Check that Tag Editor still has \"All files access\" in the phone's settings."
         is FileNotFoundException -> "The file was not found or cannot be written."
         is OutOfMemoryError -> "Not enough memory to process this file."
         else -> t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
@@ -74,51 +84,113 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
     /** Suspend-safe item lookup used by the list rows. */
     suspend fun tagsFor(item: AudioItem): TagData = repo.quickTags(item)
 
+    /** Small cover picture for a list row, or null when the song has no embedded cover. */
+    suspend fun coverFor(item: AudioItem): Bitmap? = repo.coverThumb(item)
+
+    fun showMessage(text: String) {
+        toast(text)
+    }
+
     // ---------------------------------------------------------------------------------------
-    // Picking files
+    // Finding songs: access, the "All" tab and the built-in file browser
     // ---------------------------------------------------------------------------------------
 
-    fun onFilesPicked(uris: List<Uri>) {
-        if (uris.isEmpty()) return
-        viewModelScope.launch {
-            setBusy("Reading files")
-            val result = runCatching { repo.describe(uris) }
-            clearBusy()
-            result.onSuccess { described ->
-                val supported = described.filter { AudioFileParser.isSupported(it.name) }
-                val skipped = described.size - supported.size
-                addItems(supported)
-                when {
-                    supported.isEmpty() -> toast("Only MP3, FLAC and M4A files are supported")
-                    skipped > 0 -> toast("$skipped unsupported file(s) skipped")
-                    else -> Unit
-                }
-            }.onFailure { toast("Could not read the selection: ${friendly(it)}") }
+    /** Called when the app returns to the foreground: the user may have changed a permission. */
+    fun refreshAccess() {
+        val granted = StorageAccess.hasAccess(getApplication<Application>())
+        if (granted == _state.value.hasAccess) return
+        _state.update { it.copy(hasAccess = granted, selected = emptySet()) }
+        if (granted) {
+            loadLibrary()
+            startBrowser()
         }
     }
 
-    fun onFolderPicked(uri: Uri) {
+    fun selectTab(tab: HomeTab) {
+        _state.update { s -> if (s.tab == tab) s else s.copy(tab = tab, selected = emptySet()) }
+    }
+
+    /** Reads every song of the media library. Also used by the rescan button. */
+    fun loadLibrary() {
+        if (!_state.value.hasAccess) return
         viewModelScope.launch {
-            setBusy("Scanning folder")
-            val result = runCatching { repo.scanTree(uri, recursive = true) }
-            clearBusy()
-            result.onSuccess { found ->
-                if (found.isEmpty()) {
-                    toast("No MP3, FLAC or M4A files found in that folder")
+            _state.update { it.copy(libraryLoading = true) }
+            val result = runCatching { repo.listLibrary() }
+            val list = result.getOrNull()
+            _state.update { s ->
+                if (list == null) {
+                    s.copy(libraryLoading = false)
                 } else {
-                    addItems(found)
-                    toast("${found.size} files found")
+                    val known = list.map { it.uri }.toHashSet()
+                    s.copy(
+                        library = list,
+                        libraryLoading = false,
+                        selected = if (s.tab == HomeTab.ALL) s.selected.filter { it in known }.toSet() else s.selected
+                    )
                 }
-            }.onFailure { toast("Could not read the folder: ${friendly(it)}") }
+            }
+            val error = result.exceptionOrNull()
+            if (error != null) toast("Could not read your music library: ${friendly(error)}")
         }
     }
 
-    private fun addItems(newItems: List<AudioItem>) {
-        _state.update { s ->
-            val known = s.items.map { it.uri }.toHashSet()
-            val fresh = newItems.filter { known.add(it.uri) }
-            s.copy(items = s.items + fresh)
+    private fun startBrowser() {
+        viewModelScope.launch {
+            val roots = runCatching { repo.storageRoots() }.getOrDefault(emptyList())
+            val saved = prefs.getString(PREF_BROWSE_DIR, null)
+            val usable = saved != null &&
+                roots.any { saved == it.path || saved.startsWith(it.path + "/") } &&
+                File(saved).isDirectory
+            val start = if (usable && saved != null) saved else roots.firstOrNull()?.path
+            _state.update { it.copy(browser = it.browser.copy(roots = roots)) }
+            if (start != null) browseTo(start)
         }
+    }
+
+    /** Opens a folder in the built-in browser. Songs ticked in another folder are unticked. */
+    fun browseTo(path: String) {
+        _state.update { s ->
+            s.copy(
+                browser = s.browser.copy(
+                    dir = path,
+                    folders = emptyList(),
+                    files = emptyList(),
+                    loading = true,
+                    error = null
+                ),
+                selected = emptySet()
+            )
+        }
+        viewModelScope.launch {
+            val result = runCatching { repo.listDirectory(File(path)) }
+            val listing = result.getOrNull()
+            _state.update { s ->
+                if (s.browser.dir != path) {
+                    // The user already moved on to another folder.
+                    s
+                } else if (listing != null) {
+                    s.copy(
+                        browser = s.browser.copy(
+                            folders = listing.folders,
+                            files = listing.files,
+                            loading = false,
+                            error = null
+                        )
+                    )
+                } else {
+                    val reason = result.exceptionOrNull()?.let { friendly(it) } ?: "This folder cannot be read"
+                    s.copy(browser = s.browser.copy(loading = false, error = reason))
+                }
+            }
+            if (listing != null) prefs.edit().putString(PREF_BROWSE_DIR, path).apply()
+        }
+    }
+
+    fun browseUp() {
+        val browser = _state.value.browser
+        if (!browser.canGoUp) return
+        val parent = File(browser.dir).parent ?: return
+        browseTo(parent)
     }
 
     fun toggleSelected(uri: Uri) {
@@ -127,16 +199,13 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun selectAll() {
-        _state.update { s -> s.copy(selected = s.items.map { it.uri }.toSet()) }
+    /** Selects exactly these songs (the visible ones, when a search is active). */
+    fun selectItems(items: List<AudioItem>) {
+        _state.update { s -> s.copy(selected = items.map { it.uri }.toSet()) }
     }
 
     fun clearSelection() {
         _state.update { it.copy(selected = emptySet()) }
-    }
-
-    fun clearList() {
-        _state.update { it.copy(items = emptyList(), selected = emptySet()) }
     }
 
     // ---------------------------------------------------------------------------------------
@@ -275,11 +344,11 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
                 val oldUri = editor.item.uri
                 val moved = item
                 _state.update { s ->
-                    val items = s.items.map { if (it.uri == oldUri) moved else it }
+                    val mapped = s.mapItems { if (it.uri == oldUri) moved else it }
                     val selected = s.selected.map { if (it == oldUri) moved.uri else it }.toSet()
                     val current = s.editor
                     if (current == null || current.item.uri != oldUri) {
-                        s.copy(items = items, selected = selected, revision = s.revision + 1)
+                        mapped.copy(selected = selected, revision = s.revision + 1)
                     } else {
                         val refreshed = if (reloaded != null) {
                             current.copy(
@@ -302,7 +371,7 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
                                 renameAsTitle = false
                             )
                         }
-                        s.copy(editor = refreshed, items = items, selected = selected, revision = s.revision + 1)
+                        mapped.copy(editor = refreshed, selected = selected, revision = s.revision + 1)
                     }
                 }
                 if (renameMessage != null) {
@@ -631,9 +700,8 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
                     val moved = renamed[editor.item.uri]
                     if (moved != null) editor.copy(item = moved) else editor
                 }
-                st.copy(
+                st.mapItems { renamed[it.uri] ?: it }.copy(
                     screen = st.rename.returnTo,
-                    items = st.items.map { renamed[it.uri] ?: it },
                     selected = st.selected.map { renamed[it]?.uri ?: it }.toSet(),
                     editor = updatedEditor,
                     revision = st.revision + 1,
@@ -656,7 +724,10 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
         val s = _state.value
         if (s.busy != null) return
         when (s.screen) {
-            Screen.HOME -> Unit
+            Screen.HOME -> {
+                // In the file browser the back button goes up one folder.
+                if (s.tab == HomeTab.BROWSE && s.browser.canGoUp) browseUp()
+            }
             Screen.EDITOR -> {
                 if (s.editor?.dirty == true) {
                     _state.update { it.copy(confirmDiscard = true) }
@@ -690,6 +761,7 @@ class TagEditorViewModel(application: Application) : AndroidViewModel(applicatio
             TagKey.ALBUM, TagKey.ALBUM_ARTIST, TagKey.ARTIST, TagKey.YEAR,
             TagKey.GENRE, TagKey.DISC, TagKey.COMPOSER, TagKey.COMMENT
         )
+        const val PREF_BROWSE_DIR = "browse_dir"
         const val PREF_TEMPLATE = "rename_template"
         const val PREF_COVER_PX = "cover_max_px"
         const val PREF_KEEP_ORIGINAL = "cover_keep_original"

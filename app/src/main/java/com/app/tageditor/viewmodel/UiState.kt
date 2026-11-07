@@ -6,11 +6,38 @@ import com.app.tageditor.data.AudioItem
 import com.app.tageditor.data.CoverArt
 import com.app.tageditor.data.CoverChange
 import com.app.tageditor.data.FileNameTemplate
+import com.app.tageditor.data.FolderEntry
+import com.app.tageditor.data.StorageRoot
 import com.app.tageditor.data.TagData
 import com.app.tageditor.data.TagKey
 import com.app.tageditor.data.diffTags
 
 enum class Screen { HOME, EDITOR, BATCH, RENAME }
+
+/** The two ways to find songs on Home: everything on the phone, or browsing folders. */
+enum class HomeTab { ALL, BROWSE }
+
+/** The built-in file browser: the folder being shown and what is inside it. */
+data class BrowserState(
+    val roots: List<StorageRoot> = emptyList(),
+    val dir: String = "",
+    val folders: List<FolderEntry> = emptyList(),
+    val files: List<AudioItem> = emptyList(),
+    val loading: Boolean = false,
+    val error: String? = null
+) {
+    /** The storage volume the current folder lives on. */
+    val root: StorageRoot?
+        get() = roots
+            .filter { dir == it.path || dir.startsWith(it.path + "/") }
+            .maxByOrNull { it.path.length }
+
+    val canGoUp: Boolean
+        get() {
+            val current = root ?: return false
+            return dir != current.path
+        }
+}
 
 /** Shown as a blocking overlay while files are being read or written. */
 data class BusyState(val message: String, val done: Int = 0, val total: Int = 0) {
@@ -94,7 +121,14 @@ data class Report(val title: String, val summary: String, val details: List<Stri
 
 data class UiState(
     val screen: Screen = Screen.HOME,
-    val items: List<AudioItem> = emptyList(),
+    val tab: HomeTab = HomeTab.ALL,
+    /** Audio permission and "All files access" are both granted. */
+    val hasAccess: Boolean = false,
+    /** Every song of the media library (the "All" tab). */
+    val library: List<AudioItem> = emptyList(),
+    val libraryLoading: Boolean = false,
+    val browser: BrowserState = BrowserState(),
+    /** Selected songs of the list on screen. The selection is cleared when that list changes. */
     val selected: Set<Uri> = emptySet(),
     /** Incremented whenever file contents changed so lists reload their tag summaries. */
     val revision: Int = 0,
@@ -106,4 +140,14 @@ data class UiState(
     val keepOriginalCover: Boolean = false,
     val confirmDiscard: Boolean = false,
     val report: Report? = null
+) {
+    /** The songs shown on Home right now: the whole library, or the browser's current folder. */
+    val items: List<AudioItem>
+        get() = if (tab == HomeTab.ALL) library else browser.files
+}
+
+/** Applies [transform] to every known song in both lists, for example after a rename. */
+fun UiState.mapItems(transform: (AudioItem) -> AudioItem): UiState = copy(
+    library = library.map(transform),
+    browser = browser.copy(files = browser.files.map(transform))
 )
